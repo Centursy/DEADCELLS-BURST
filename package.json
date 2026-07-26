@@ -1,0 +1,39 @@
+{
+  "name": "koishi-plugin-deadcells-burst",
+  "version": "0.1.0",
+  "description": "死亡细胞大作战！32张地图和原版地图boss，以回合制战斗，向玩家和boss发起挑战！",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/Centursy/DEADCELLS-BURST.git"
+  },
+  "homepage": "https://github.com/Centursy/DEADCELLS-BURST#readme",
+  "bugs": {
+    "url": "https://github.com/Centursy/DEADCELLS-BURST/issues"
+  },
+  "main": "lib/index.js",
+  "typings": "lib/index.d.ts",
+  "files": [
+    "lib",
+    "src",
+    "pic"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.js"
+  },
+  "license": "MIT",
+  "keywords": [
+    "koishi",
+    "chatbot",
+    "deadcells",
+    "game"
+  ],
+  "peerDependencies": {
+    "koishi": "^4.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "koishi": "^4.18.0",
+    "typescript": "^5.6.0"
+  }
+}
