@@ -37,9 +37,9 @@ function randomInt(random: Random, min: number, max: number): number {
 }
 
 function bossConfig(difficulty: DailyBossRecord['difficulty'], random: Random) {
-  if (difficulty === 'veteran') return { maxHp: randomInt(random, 23000, 31000), attackMultiplier: 1.5, rewardMultiplier: 2 }
-  if (difficulty === 'veteran-king') return { maxHp: randomInt(random, 35000, 50000), attackMultiplier: 2, rewardMultiplier: 3 }
-  return { maxHp: randomInt(random, 2000, 12000), attackMultiplier: 1, rewardMultiplier: 1 }
+  if (difficulty === 'veteran') return { maxHp: randomInt(random, 46000, 62000), attackMultiplier: 1.5, rewardMultiplier: 2 }
+  if (difficulty === 'veteran-king') return { maxHp: randomInt(random, 70000, 100000), attackMultiplier: 2, rewardMultiplier: 3 }
+  return { maxHp: randomInt(random, 4000, 24000), attackMultiplier: 1, rewardMultiplier: 1 }
 }
 
 export function raidBossMaps(): MapDefinition[] {
