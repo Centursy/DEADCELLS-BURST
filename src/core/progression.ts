@@ -1,5 +1,6 @@
 import { getEquipment } from '../data/equipment'
-import { getAmulet, getAmuletTrait, parseAmuletTraits } from '../data/amulets'
+import { activeTraitIds, getAmulet, getAmuletTrait } from '../data/amulets'
+import { weaponQualityBonus } from '../data/equipment'
 import type { DeadcellsPlayer, PlayerStats } from '../types'
 
 export const MAX_BOSS_CELL_LEVEL = 5
@@ -20,6 +21,8 @@ export function createPlayer(userId: string, username: string): DeadcellsPlayer 
     cells: 0,
     bossCellLevel: 0,
     weaponId: 'rusty-knife',
+    weaponQuality: 'normal',
+    weaponTrait: null,
     shieldId: null,
     item1Id: null,
     item2Id: null,
@@ -34,6 +37,9 @@ export function createPlayer(userId: string, username: string): DeadcellsPlayer 
     dailyExploreCount: 0,
     lastBossRaidAt: 0,
     bossChoiceState: null,
+    shopMaxHpBonus: 0,
+    shopCritBonus: 0,
+    powerScrollReady: false,
   }
 }
 
@@ -41,7 +47,7 @@ export function getLevelConfig(level: number) {
   return levelConfig[Math.max(0, Math.min(MAX_BOSS_CELL_LEVEL, level))]
 }
 
-export function getPlayerStats(player: DeadcellsPlayer): PlayerStats {
+export function getPlayerStats(player: DeadcellsPlayer, includePowerScroll = false): PlayerStats {
   const levelIndex = Math.max(0, Math.min(MAX_BOSS_CELL_LEVEL, player.bossCellLevel))
   const cumulativeBonus = levelConfig.slice(1, levelIndex + 1).reduce(
     (total, current) => ({
@@ -54,7 +60,8 @@ export function getPlayerStats(player: DeadcellsPlayer): PlayerStats {
   const weapon = getEquipment(player.weaponId)
   const shield = getEquipment(player.shieldId)
   const amulet = getAmulet(player.amuletId)
-  const traitStats = parseAmuletTraits(player.amuletTraits).map(getAmuletTrait).filter(Boolean).reduce(
+  const qualityBonus = weaponQualityBonus(player.weaponQuality)
+  const traitStats = activeTraitIds(player).map(getAmuletTrait).filter(Boolean).reduce(
     (total, current) => ({
       attack: total.attack + (current?.attackBonus || 0),
       crit: total.crit + (current?.critBonus || 0),
@@ -62,12 +69,12 @@ export function getPlayerStats(player: DeadcellsPlayer): PlayerStats {
     }),
     { attack: 0, crit: 0, maxHp: 0 },
   )
-  const maxHpBonus = traitStats.maxHp
+  const maxHpBonus = traitStats.maxHp + (player.shopMaxHpBonus || 0) + (includePowerScroll && player.powerScrollReady ? 20 : 0)
   const maxHp = weapon?.cursed ? 1 : 50 + cumulativeBonus.hp + maxHpBonus
   return {
     maxHp,
-    attack: 10 + cumulativeBonus.attack + (weapon?.attackBonus || 0) + traitStats.attack,
-    critChance: Math.min(100, cumulativeBonus.crit + (weapon?.critBonus || 0) + traitStats.crit),
+    attack: 10 + cumulativeBonus.attack + (weapon?.attackBonus || 0) + qualityBonus.attack + traitStats.attack + (includePowerScroll && player.powerScrollReady ? 10 : 0),
+    critChance: Math.min(100, cumulativeBonus.crit + (weapon?.critBonus || 0) + qualityBonus.crit + traitStats.crit + (player.shopCritBonus || 0) + (includePowerScroll && player.powerScrollReady ? 10 : 0)),
     weaponName: weapon?.name || '无武器',
     shieldName: shield?.name || '无盾牌',
     amuletName: amulet?.name || '囚者颈环',
@@ -79,7 +86,7 @@ export function formatWinRate(player: DeadcellsPlayer): string {
 }
 
 export function getAmuletCellMultiplier(player: DeadcellsPlayer): number {
-  return parseAmuletTraits(player.amuletTraits)
+  return activeTraitIds(player)
     .map(getAmuletTrait)
     .reduce((multiplier, trait) => {
       if (trait?.effectId === 'greed-2') return multiplier * 2

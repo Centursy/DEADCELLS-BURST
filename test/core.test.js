@@ -101,6 +101,17 @@ test('对战转移细胞也按多个贪婪词条连乘', () => {
   assert.equal(result.cellTransfer, 12)
 })
 
+test('荆棘反伤导致双方同时死亡时主动攻击者获胜', () => {
+  const first = createPlayer('a', 'A')
+  const second = createPlayer('b', 'B')
+  first.weaponId = 'cursed-sword'
+  second.weaponId = 'cursed-sword'
+  second.amuletTraits = JSON.stringify(['thorns-3'])
+  const result = simulateBattle(first, second, config, () => 0)
+  assert.equal(result.winnerId, 'a')
+  assert.match(eventText(result), /荆棘.*反弹/)
+})
+
 test('诅咒之刃将最大生命值变为 1', () => {
   const player = createPlayer('a', 'A')
   player.weaponId = 'cursed-sword'
@@ -254,6 +265,34 @@ test('吸血道具按实际造成的伤害回复', () => {
     queuedRandom([0.99, 0.0, 0.0, 0.0]),
   )
   assert.match(eventText(result), /A 通过【吸血（道具）】回复 11 点生命！/)
+})
+
+test('护符吸血按实际伤害结算，不按减伤前面板伤害结算', () => {
+  const first = createPlayer('a', 'A')
+  const second = createPlayer('b', 'B')
+  first.shieldId = 'force-shield'
+  second.amuletTraits = JSON.stringify(['amulet-vampirism'])
+  const result = simulateBattle(first, second, { ...config, maxBattleTurns: 2 }, queuedRandom([0, 0.99, 0.99]))
+  assert.match(eventText(result), /B 通过【吸血（词条）】回复 5 点生命！/)
+  assert.doesNotMatch(eventText(result), /B 通过【吸血（词条）】回复 8 点生命！/)
+})
+
+test('寒气练成每个持有者回合的首次伤害都能翻倍', () => {
+  const first = createPlayer('a', 'A')
+  const second = createPlayer('b', 'B')
+  first.amuletTraits = JSON.stringify(['cold-forging'])
+  const result = simulateBattle(first, second, { ...config, maxBattleTurns: 4 }, () => 0)
+  assert.equal(eventText(result).match(/寒气练成/g)?.length, 2)
+})
+
+test('位移只强化下一次主武器攻击，不会强化道具或持续伤害', () => {
+  const first = createPlayer('a', 'A')
+  const second = createPlayer('b', 'B')
+  first.item1Id = 'displacement'
+  first.item2Id = 'powerful-grenade'
+  const result = simulateBattle(first, second, { ...config, maxBattleTurns: 3, itemUseRate: 100 }, () => 0)
+  assert.match(eventText(result), /B 受到 23 点伤害！/)
+  assert.doesNotMatch(eventText(result), /B 受到 45 点伤害！/)
 })
 
 test('夜歌和死里逃生可以按顺序各自抵挡一次致命伤害', () => {

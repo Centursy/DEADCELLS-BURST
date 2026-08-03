@@ -3,21 +3,23 @@ import type { Config } from '../config'
 import { rollAmulet, serializeAmuletTraits } from '../data/amulets'
 import { getPlayer } from '../utils/player'
 import { renderAmuletCard, renderAmuletChoicesCard } from '../output/image'
+import { isActivityActive } from '../core/activity'
 
-function craftCount(value: unknown): number | undefined {
+function craftCount(value: unknown, maxCount: number): number | undefined {
   if (value === undefined || value === null || value === '') return 1
   const count = Number(value)
-  return Number.isInteger(count) && count >= 1 && count <= 5 ? count : undefined
+  return Number.isInteger(count) && count >= 1 && count <= maxCount ? count : undefined
 }
 
 export function registerAlchemyCommand(ctx: Context, config: Config, busy: Set<string>) {
   ctx.command(`${config.commandAlchemy} [count:number]`)
     .action(async ({ session }, countInput) => {
       if (!session?.userId) return '当前消息缺少用户身份，无法炼化护符。'
-      const count = craftCount(countInput)
-      if (!count) return '护符炼化次数必须是 1-5 的整数。'
+      const count = craftCount(countInput, config.alchemyMaxCount)
+      if (!count) return `护符炼化次数必须是 1-${config.alchemyMaxCount} 的整数。`
       const player = await getPlayer(ctx, session.userId)
       if (!player) return '未找到用户数据哦，请先使用 deadcells 指令来创建角色！'
+      if (isActivityActive(player.userId)) return '你正在参加死斗，结束前不能进行护符炼化。'
       const totalCost = config.alchemyCost * count
       if (player.cells < totalCost) return `当前细胞数不足，需要 ${totalCost} 个细胞才能炼化 ${count} 次。`
       if (busy.has(player.userId)) return '你当前正在进行其他操作，请稍后再试。'

@@ -1,19 +1,20 @@
 import { formatWinRate, getPlayerStats } from '../core/progression'
 import type { ExplorationResult } from '../core/exploration'
-import { getEquipment } from '../data/equipment'
-import { getAmulet, getAmuletTrait, parseAmuletTraits } from '../data/amulets'
+import { getEquipment, weaponQualityEffectText, weaponQualityText } from '../data/equipment'
+import { activeTraitIds, getAmulet, getAmuletTrait, parseAmuletTraits } from '../data/amulets'
 import type { BattleEvent, DeadcellsPlayer } from '../types'
 
 export function playerStatus(player: DeadcellsPlayer): string {
   const stats = getPlayerStats(player)
   const amulet = getAmulet(player.amuletId)
   const traits = parseAmuletTraits(player.amuletTraits).map(getAmuletTrait).filter(Boolean)
+  const weaponTrait = player.weaponQuality === 'colorless' && player.weaponTrait ? getAmuletTrait(player.weaponTrait) : undefined
   return [
     `${player.username}`,
     `细胞数：${player.cells}`,
     `【${player.bossCellLevel}】细胞等级`,
     `HP ${stats.maxHp} | 攻击 ${stats.attack} | 暴击 ${stats.critChance}%`,
-    `武器：【${stats.weaponName}】|副手：【${stats.shieldName}】`,
+    `武器：【${weaponQualityText(player.weaponQuality)}·${stats.weaponName}】${weaponQualityEffectText(player.weaponQuality) ? `|${weaponQualityEffectText(player.weaponQuality)}` : ''}${weaponTrait ? `|无色词条：${weaponTrait.name}` : ''}|副手：【${stats.shieldName}】`,
     `道具1：【${getEquipment(player.item1Id)?.name || '无'}】|道具2：【${getEquipment(player.item2Id)?.name || '无'}】`,
     `护符：【${amulet?.name || '囚者颈环'}】${traits.length ? `|词条：${traits.map((trait) => trait!.name).join('、')}` : ''}`,
     `对战次数：【${player.battleCount}】`,
@@ -28,9 +29,10 @@ export function equipmentDescription(player: DeadcellsPlayer): string {
   const item2 = getEquipment(player.item2Id)
   const amulet = getAmulet(player.amuletId)
   const traits = parseAmuletTraits(player.amuletTraits).map(getAmuletTrait).filter(Boolean)
+  const weaponTrait = player.weaponQuality === 'colorless' && player.weaponTrait ? getAmuletTrait(player.weaponTrait) : undefined
   return [
     '当前装备',
-    `武器：【${weapon?.name || '无'}】${weapon ? `：${weapon.description}` : ''}`,
+    `武器：【${weaponQualityText(player.weaponQuality)}·${weapon?.name || '无'}】${weapon ? `：${[weapon.description, weaponQualityEffectText(player.weaponQuality), weaponTrait ? `无色词条：${weaponTrait.name}（${weaponTrait.description}）` : ''].filter(Boolean).join('｜')}` : ''}`,
     `副手：【${shield?.name || '无'}】${shield ? `：${shield.description}` : ''}`,
     `道具1：【${item1?.name || '无'}】${item1 ? `：${item1.description}` : ''}`,
     `道具2：【${item2?.name || '无'}】${item2 ? `：${item2.description}` : ''}`,

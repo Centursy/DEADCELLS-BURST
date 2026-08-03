@@ -2,6 +2,7 @@ import type { Context } from 'koishi'
 import type { Config } from '../config'
 import { getLevelConfig, MAX_BOSS_CELL_LEVEL } from '../core/progression'
 import { confirm, getPlayer } from '../utils/player'
+import { isActivityActive } from '../core/activity'
 
 export function registerUpgradeCommand(ctx: Context, config: Config, busy: Set<string>) {
   ctx.command(config.commandUpgrade)
@@ -10,6 +11,7 @@ export function registerUpgradeCommand(ctx: Context, config: Config, busy: Set<s
       const userId = session.userId
       const player = await getPlayer(ctx, userId)
       if (!player) return '未找到用户数据哦，请先使用 deadcells 指令来创建角色！'
+      if (isActivityActive(userId)) return '你正在参加死斗，结束前不能升级细胞等级。'
       if (player.bossCellLevel >= MAX_BOSS_CELL_LEVEL) return '当前已经是最高的 5 细胞等级。'
 
       const nextLevel = player.bossCellLevel + 1

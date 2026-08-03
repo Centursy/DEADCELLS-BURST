@@ -1,5 +1,5 @@
 import { getEquipment } from '../data/equipment'
-import { amuletTraitList, getAmuletTrait, parseAmuletTraits } from '../data/amulets'
+import { activeTraitIds, amuletTraitList, getAmuletTrait } from '../data/amulets'
 import type { Config } from '../config'
 import type { BossChoiceState, DailyBossRecord, DeadcellsPlayer, Random } from '../types'
 import { getPlayerStats } from './progression'
@@ -31,30 +31,30 @@ export function serializeBossChoiceState(state: BossChoiceState): string {
 
 const FINAL_BOSS_MAPS = new Set(['王座之间', '塔顶', '观星台'])
 const DIFFICULTIES: DailyBossRecord['difficulty'][] = ['normal', 'veteran', 'veteran-king']
+const BOSS_HP_SCALE = 1.5
 
 function randomInt(random: Random, min: number, max: number): number {
   return min + Math.floor(random() * (max - min + 1))
 }
 
 function bossConfig(difficulty: DailyBossRecord['difficulty'], random: Random) {
-  if (difficulty === 'veteran') return { maxHp: randomInt(random, 46000, 62000), attackMultiplier: 1.5, rewardMultiplier: 2 }
-  if (difficulty === 'veteran-king') return { maxHp: randomInt(random, 70000, 100000), attackMultiplier: 2, rewardMultiplier: 3 }
-  return { maxHp: randomInt(random, 12000, 24000), attackMultiplier: 1, rewardMultiplier: 1 }
+  if (difficulty === 'veteran') return { maxHp: randomInt(random, 46000 * BOSS_HP_SCALE, 62000 * BOSS_HP_SCALE), attackMultiplier: 1.5, rewardMultiplier: 2 }
+  if (difficulty === 'veteran-king') return { maxHp: randomInt(random, 70000 * BOSS_HP_SCALE, 100000 * BOSS_HP_SCALE), attackMultiplier: 2, rewardMultiplier: 3 }
+  return { maxHp: randomInt(random, 12000 * BOSS_HP_SCALE, 24000 * BOSS_HP_SCALE), attackMultiplier: 1, rewardMultiplier: 1 }
 }
 
 export function raidBossMaps(): MapDefinition[] {
   return maps.filter((map) => map.boss && !FINAL_BOSS_MAPS.has(map.name))
 }
 
-export async function getOrCreateDailyBoss(ctx: any, random: Random = Math.random): Promise<DailyBossRecord> {
-  const date = beijingDate()
-  const [existing] = await ctx.database.get('deadcells_daily_bosses', { date })
-  if (existing) return existing
+export function createDailyBossRecord(date: string, random: Random = Math.random, previousMapName?: string): DailyBossRecord {
   const pool = raidBossMaps()
-  const map = pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))]
+  const eligiblePool = pool.filter((map) => map.name !== previousMapName)
+  const mapsForToday = eligiblePool.length ? eligiblePool : pool
+  const map = mapsForToday[Math.min(mapsForToday.length - 1, Math.floor(random() * mapsForToday.length))]
   const difficulty = DIFFICULTIES[Math.min(DIFFICULTIES.length - 1, Math.floor(random() * DIFFICULTIES.length))]
   const config = bossConfig(difficulty, random)
-  const record: DailyBossRecord = {
+  return {
     date,
     mapName: map.name,
     bossName: map.boss!,
@@ -68,6 +68,14 @@ export async function getOrCreateDailyBoss(ctx: any, random: Random = Math.rando
     killerName: null,
     rankings: '[]',
   }
+}
+
+export async function getOrCreateDailyBoss(ctx: any, random: Random = Math.random): Promise<DailyBossRecord> {
+  const date = beijingDate()
+  const [existing] = await ctx.database.get('deadcells_daily_bosses', { date })
+  if (existing) return existing
+  const [previous] = await ctx.database.get('deadcells_daily_bosses', { date: beijingDate(Date.now() - 24 * 60 * 60 * 1000) })
+  const record = createDailyBossRecord(date, random, previous?.mapName)
   try {
     await ctx.database.create('deadcells_daily_bosses', record)
     return record
@@ -95,10 +103,10 @@ function greedMultiplier(traits: string[]): number {
 
 export function calculateBossReward(player: DeadcellsPlayer, damage: number, rewardMultiplier: number): number {
   const levelMultiplier = [1, 2, 3, 4, 5, 5][Math.max(0, Math.min(5, player.bossCellLevel))]
-  return Math.round(damage * 10 * rewardMultiplier * levelMultiplier * greedMultiplier(parseAmuletTraits(player.amuletTraits)))
+  return Math.round(damage * 10 * rewardMultiplier * levelMultiplier * greedMultiplier(activeTraitIds(player)))
 }
 
-export function parseBossRankings(value: string | null | undefined): Array<{ userId: string; username: string; damage: number }> {
+export function parseBossRankings(value: string | null | undefined): Array<{ userId: string; username: string; damage: number; channelId?: string }> {
   if (!value) return []
   try {
     const result = JSON.parse(value)
@@ -108,12 +116,12 @@ export function parseBossRankings(value: string | null | undefined): Array<{ use
   }
 }
 
-export function serializeBossRankings(rankings: Array<{ userId: string; username: string; damage: number }>): string {
+export function serializeBossRankings(rankings: Array<{ userId: string; username: string; damage: number; channelId?: string }>): string {
   return JSON.stringify(rankings.sort((a, b) => b.damage - a.damage || a.userId.localeCompare(b.userId)).slice(0, 50))
 }
 
-export function randomTraitChoices(random: Random, count = 5): string[] {
-  const pool = [...amuletTraitList]
+export function randomTraitChoices(random: Random, count = 5, excluded: string[] = []): string[] {
+  const pool = amuletTraitList.filter((trait) => !excluded.includes(trait.id))
   const choices: string[] = []
   while (choices.length < count && pool.length) {
     const index = Math.min(pool.length - 1, Math.floor(random() * pool.length))
@@ -124,7 +132,7 @@ export function randomTraitChoices(random: Random, count = 5): string[] {
 
 export function simulateBossRaid(player: DeadcellsPlayer, boss: DailyBossRecord, config: Config, random: Random = Math.random): BossRaidResult {
   const stats = getPlayerStats(player)
-  const traits = parseAmuletTraits(player.amuletTraits)
+  const traits = activeTraitIds(player)
   const weapon = getEquipment(player.weaponId)
   const shield = getEquipment(player.shieldId)
   let playerHp = stats.maxHp
@@ -133,14 +141,25 @@ export function simulateBossRaid(player: DeadcellsPlayer, boss: DailyBossRecord,
   let turns = 0
   let attackCount = 0
   let coldUsed = false
-  let critChance = stats.critChance
+  let item1Used = false
+  let item2Used = false
+  let critChance = traits.some((id) => getAmuletTrait(id)?.effectId === 'giant-slayer') ? 100 : stats.critChance
   let damageTakenMultiplier = shield?.effectId === 'damage-reduction' ? 0.7 : 1
+  let barrierHp = traits.some((id) => getAmuletTrait(id)?.effectId === 'orichalcum') ? stats.maxHp * 0.2 : 0
+  let retaliationReady = false
+  let weaponAttack = stats.attack
+  let penNibReady = false
   const events: string[] = []
 
-  const deal = (raw: number, forcedCrit = false) => {
+  const deal = (raw: number, forcedCrit = false, weaponDamage = false, allowExtras = true) => {
     if (remaining <= 0) return
     const critical = forcedCrit || random() * 100 < critChance
-    let amount = raw * (critical ? 2 * critMultiplier(traits) : 1) * bossDamageMultiplier(traits)
+    const penNibMultiplier = weaponDamage && penNibReady ? 2 : 1
+    if (weaponDamage && penNibReady) {
+      penNibReady = false
+      events.push('【笔尖】使本次主武器伤害翻倍！')
+    }
+    let amount = raw * penNibMultiplier * (critical ? 2 * critMultiplier(traits) : 1) * bossDamageMultiplier(traits)
     if (!coldUsed && traits.includes('cold-forging')) {
       amount *= 2
       coldUsed = true
@@ -150,6 +169,10 @@ export function simulateBossRaid(player: DeadcellsPlayer, boss: DailyBossRecord,
     remaining -= amount
     damage += amount
     events.push(`对 Boss 造成 ${Math.round(amount)} 点${critical ? '暴击' : ''}伤害！`)
+    if (weaponDamage && critical && allowExtras && traits.some((id) => getAmuletTrait(id)?.effectId === 'starfury') && remaining > 0) {
+      events.push('【星怒】追加一次独立攻击！')
+      deal(raw, false, true, false)
+    }
   }
 
   if (traits.includes('meteor-flash')) {
@@ -157,19 +180,45 @@ export function simulateBossRaid(player: DeadcellsPlayer, boss: DailyBossRecord,
     deal(90)
     events.push('【流星一闪】开局自爆！')
   }
+  if (traits.some((id) => getAmuletTrait(id)?.effectId === 'offering')) {
+    playerHp = Math.max(1, playerHp - stats.maxHp * 0.99)
+    events.push('【祭品】开局献祭99%生命。')
+  }
+  if (barrierHp > 0) events.push(`【奥利哈刚】获得 ${Math.round(barrierHp)} 点护盾！`)
 
   while (playerHp > 0 && remaining > 0 && turns < config.maxBattleTurns) {
     turns++
+    coldUsed = false
     attackCount++
+    penNibReady = turns % 3 === 0 && traits.some((id) => getAmuletTrait(id)?.effectId === 'pen-nib')
+    if (traits.some((id) => getAmuletTrait(id)?.effectId === 'golden-order')) {
+      const before = playerHp
+      playerHp = Math.min(stats.maxHp, playerHp + stats.maxHp * 0.15)
+      events.push(`【黄金律法】回复 ${Math.round(playerHp - before)} 点生命！`)
+    }
+    if (traits.some((id) => getAmuletTrait(id)?.effectId === 'demon-form')) {
+      weaponAttack += 3
+      events.push('【恶魔形态】攻击力提高3点！')
+    }
     const useSkill = Boolean(weapon?.skill && random() * 100 < config.skillRate)
-    const useItem = Boolean((player.item1Id || player.item2Id) && random() * 100 < config.itemUseRate)
+    const availableItems = [
+      !item1Used && player.item1Id ? { id: player.item1Id, slot: 1 as const } : undefined,
+      !item2Used && player.item2Id ? { id: player.item2Id, slot: 2 as const } : undefined,
+    ].filter(Boolean) as Array<{ id: string; slot: 1 | 2 }>
+    const forceFirstItem = turns === 1 && traits.some((id) => getAmuletTrait(id)?.effectId === 'bottled-lightning') && !item1Used && player.item1Id
+    const useItem = Boolean(forceFirstItem || (availableItems.length && random() * 100 < config.itemUseRate))
     if (useItem) {
-      const item = getEquipment(player.item1Id || player.item2Id)
-      if (item?.effectId === 'powerful-grenade') deal(stats.attack * 1.5)
+      const picked = forceFirstItem
+        ? availableItems.find((item) => item.slot === 1)!
+        : availableItems[Math.min(availableItems.length - 1, Math.floor(random() * availableItems.length))]
+      if (picked.slot === 1) item1Used = true
+      else item2Used = true
+      const item = getEquipment(picked.id)
+      if (item?.effectId === 'powerful-grenade') deal(weaponAttack * 1.5)
       else if (item?.effectId === 'cluster-grenade') for (let index = 0; index < 6 && remaining > 0; index++) deal(10)
       else if (item?.effectId === 'whirlwind-knife') deal(15)
-      else if (item?.effectId === 'vampirism-item') deal(stats.attack)
-      else if (item?.effectId === 'displacement') deal(stats.attack * 2)
+      else if (item?.effectId === 'vampirism-item') deal(weaponAttack)
+      else if (item?.effectId === 'displacement') deal(weaponAttack * 2)
       else events.push(`使用道具【${item?.name || '未知道具'}】，本回合不攻击。`)
     } else {
       const hits = weapon?.effectId === 'double-hit' ? 2 : weapon?.effectId === 'triple-hit' ? 3 : 1
@@ -178,10 +227,19 @@ export function simulateBossRaid(player: DeadcellsPlayer, boss: DailyBossRecord,
       if (weapon?.effectId === 'even-crit' && turns % 2 === 0) guaranteedCrit = true
       if (weapon?.effectId === 'third-turn-crit' && turns === 3) guaranteedCrit = true
       if (weapon?.effectId === 'first-turn-crit' && turns === 1) guaranteedCrit = true
-      for (let index = 0; index < hits && remaining > 0; index++) deal(stats.attack, guaranteedCrit)
+      for (let index = 0; index < hits && remaining > 0; index++) deal(weaponAttack, guaranteedCrit || retaliationReady, true)
+      retaliationReady = false
+      if (traits.some((id) => getAmuletTrait(id)?.effectId === 'prism-mirror') && random() * 100 < 30 && remaining > 0) {
+        events.push('【棱镜之镜】追加一次独立攻击！')
+        deal(weaponAttack, false, true, false)
+      }
       if (weapon?.effectId === 'electric-damage' && remaining > 0) {
         const extraHits = random() < 0.1 ? 3 : random() < 0.2 ? 1 : 0
-        for (let index = 0; index < extraHits; index++) deal(stats.attack, guaranteedCrit)
+        for (let index = 0; index < extraHits; index++) deal(weaponAttack, guaranteedCrit, true)
+      }
+      if (traits.some((id) => getAmuletTrait(id)?.effectId === 'combo')) {
+        weaponAttack += 5
+        events.push('【连击】主武器攻击力提高5点！')
       }
     }
     if (remaining <= 0) break
@@ -190,8 +248,19 @@ export function simulateBossRaid(player: DeadcellsPlayer, boss: DailyBossRecord,
       let bossDamage = 30 * boss.attackMultiplier * (random() < 0.5 ? 2 : 1)
       if (shield?.blockRate && random() * 100 < shield.blockRate) bossDamage = 0
       bossDamage *= damageTakenMultiplier
+      if (traits.some((id) => getAmuletTrait(id)?.effectId === 'scales') && bossDamage > 50) {
+        bossDamage *= 0.5
+        events.push('【鳞甲】使本次 Boss 伤害降低50%！')
+      }
+      if (barrierHp > 0 && bossDamage > 0) {
+        const absorbed = Math.min(barrierHp, bossDamage)
+        barrierHp -= absorbed
+        bossDamage -= absorbed
+        events.push(`【奥利哈刚】吸收 ${Math.round(absorbed)} 点伤害，剩余护盾 ${Math.round(barrierHp)} 点！`)
+      }
       playerHp = Math.max(0, playerHp - bossDamage)
       events.push(`Boss 发动攻击，造成 ${Math.round(bossDamage)} 点伤害！`)
+      if (bossDamage > 0 && traits.some((id) => getAmuletTrait(id)?.effectId === 'counter-stance')) retaliationReady = true
     } else {
       events.push('Boss 正在蓄力……')
     }

@@ -15,6 +15,8 @@ import { getAmulet, getAmuletTrait, parseAmuletTraits, serializeAmuletTraits } f
 import { renderBossRaidCard, renderBossTraitChoiceCard } from '../output/image'
 import { getPlayer } from '../utils/player'
 import type { BossChoiceState, DailyBossRecord, DeadcellsPlayer } from '../types'
+import { isActivityActive } from '../core/activity'
+import { addWeeklyPoints } from '../core/weekly'
 
 const DIFFICULTY_NAMES: Record<DailyBossRecord['difficulty'], string> = {
   normal: '普通',
@@ -27,13 +29,14 @@ function choiceIndex(value: string | undefined, length: number): number | undefi
   return Number.isInteger(index) && index >= 0 && index < length ? index : undefined
 }
 
-function rankingForUser(rankings: ReturnType<typeof parseBossRankings>, userId: string, username: string, damage: number) {
+function rankingForUser(rankings: ReturnType<typeof parseBossRankings>, userId: string, username: string, damage: number, channelId?: string) {
   const existing = rankings.find((item) => item.userId === userId)
   if (existing) {
     existing.damage += damage
     existing.username = username
+    existing.channelId = channelId || existing.channelId
   } else {
-    rankings.push({ userId, username, damage })
+    rankings.push({ userId, username, damage, channelId })
   }
   return rankings
 }
@@ -65,17 +68,17 @@ async function settleBossChoice(ctx: Context, config: Config, session: any, play
   let nextTraits: string[]
   let amuletId = player.amuletId
 
-  if (currentTraits.length >= 2) {
-    await session.send('请选择替换第几个护符词条：\n1. 词条1\n2. 词条2')
+  if (currentTraits.length >= 3) {
+    await session.send('请选择替换第几个护符词条：\n1. 词条1\n2. 词条2\n3. 词条3')
     const slotAnswer = await session.prompt(config.equipmentConfirmTimeout * 1000)
     if (!slotAnswer) {
       await ctx.database.set('deadcells_players', { userId: player.userId }, { bossChoiceState: null })
       return '词条选择已超时，Boss 最后一击奖励失效。'
     }
-    if (!['1', '2'].includes(slotAnswer.trim())) return '请选择 1 或 2 替换护符词条。'
+    if (!['1', '2', '3'].includes(slotAnswer.trim())) return '请选择 1、2 或 3 替换护符词条。'
     nextTraits = [...currentTraits]
     nextTraits[Number(slotAnswer!.trim()) - 1] = selectedTrait
-  } else if (currentTraits.length === 1) {
+  } else if (currentTraits.length > 0) {
     nextTraits = [...currentTraits, selectedTrait]
   } else {
     amuletId = amuletId === 'prisoner-necklace' ? 'amulet-1' : amuletId
@@ -89,7 +92,7 @@ async function settleBossChoice(ctx: Context, config: Config, session: any, play
     bossChoiceState: null,
   })
   const trait = getAmuletTrait(selectedTrait)
-  return `已获得 ${state.rewardCells} 个细胞，并装备词条【${trait?.name || selectedTrait}】。${currentTraits.length >= 2 ? '已替换选择的词条槽位。' : currentTraits.length === 1 ? '已装入第二个词条槽位。' : `已获得护符【${getAmulet(amuletId)?.name || '炼化护符'}】。`}`
+  return `已获得 ${state.rewardCells} 个细胞，并装备词条【${trait?.name || selectedTrait}】。${currentTraits.length >= 3 ? '已替换选择的词条槽位。' : currentTraits.length > 0 ? `已装入第${currentTraits.length + 1}个词条槽位。` : `已获得护符【${getAmulet(amuletId)?.name || '炼化护符'}】。`}`
 }
 
 export function registerBossCommand(ctx: Context, config: Config, busy: Set<string>) {
@@ -100,6 +103,7 @@ export function registerBossCommand(ctx: Context, config: Config, busy: Set<stri
       if (!session?.userId) return '当前消息缺少用户身份，无法参加 Boss 讨伐。'
       const player = await getPlayer(ctx, session.userId)
       if (!player) return '未找到用户数据哦，请先使用 deadcells 指令来创建角色！'
+      if (isActivityActive(player.userId)) return '你正在参加死斗，结束前不能进行 Boss 讨伐。'
       if (busy.has(player.userId)) return '你当前正在进行其他操作，请稍后再试。'
 
       const pending = parseBossChoiceState(player.bossChoiceState)
@@ -138,7 +142,7 @@ export function registerBossCommand(ctx: Context, config: Config, busy: Set<stri
       let updatedBoss = boss
       try {
         const result = simulateBossRaid(player, boss, config)
-        const rankings = rankingForUser(parseBossRankings(boss.rankings), player.userId, player.username, result.damage)
+        const rankings = rankingForUser(parseBossRankings(boss.rankings), player.userId, player.username, result.damage, session.channelId)
         const currentHp = Math.max(0, boss.currentHp - result.damage)
         const killed = currentHp <= 0
         updatedBoss = {
@@ -156,6 +160,11 @@ export function registerBossCommand(ctx: Context, config: Config, busy: Set<stri
           killerName: updatedBoss.killerName,
           rankings: updatedBoss.rankings,
         })
+        if (killed) {
+          for (const [index, entry] of rankings.slice(0, 3).entries()) {
+            await addWeeklyPoints(ctx, entry.channelId, entry.userId, entry.username, [50, 40, 30][index])
+          }
+        }
         await ctx.database.set('deadcells_players', { userId: player.userId }, { lastBossRaidAt: Date.now() })
 
         const reward = calculateBossReward(player, result.damage, boss.rewardMultiplier)

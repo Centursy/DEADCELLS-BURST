@@ -2,6 +2,7 @@ import type { Context } from 'koishi'
 import type { Config } from '../config'
 import { getPlayer } from '../utils/player'
 import { dailyExploreAvailable, dispatchStatus, startExploration } from '../core/exploration-dispatch'
+import { isActivityActive } from '../core/activity'
 
 export function registerExploreCommand(ctx: Context, config: Config, busy: Set<string>) {
   ctx.command(config.commandExplore)
@@ -10,6 +11,7 @@ export function registerExploreCommand(ctx: Context, config: Config, busy: Set<s
       const userId = session.userId
       const player = await getPlayer(ctx, userId)
       if (!player) return '未找到用户数据哦，请先使用 deadcells 指令来创建角色！'
+      if (isActivityActive(userId)) return '你正在参加死斗，结束前不能开始修炼。'
       const status = dispatchStatus(player)
       if (status) return status
       if (!dailyExploreAvailable(player, config)) return `今日修炼结算次数已达到上限（${config.dailyExploreLimit}次），请明天再来。`

@@ -18,6 +18,8 @@ export function apply(ctx: Context, config: Config) {
     cells: 'unsigned',
     bossCellLevel: 'unsigned',
     weaponId: 'string',
+    weaponQuality: 'string',
+    weaponTrait: { type: 'string', nullable: true },
     shieldId: { type: 'string', nullable: true },
     item1Id: { type: 'string', nullable: true },
     item2Id: { type: 'string', nullable: true },
@@ -32,6 +34,9 @@ export function apply(ctx: Context, config: Config) {
     dailyExploreCount: 'unsigned',
     lastBossRaidAt: 'unsigned',
     bossChoiceState: { type: 'string', nullable: true },
+    shopMaxHpBonus: 'unsigned',
+    shopCritBonus: 'unsigned',
+    powerScrollReady: 'boolean',
   }, {
     primary: ['userId'],
   })
@@ -53,6 +58,25 @@ export function apply(ctx: Context, config: Config) {
     primary: ['date'],
   })
 
+  ctx.model.extend('deadcells_weekly_scores', {
+    week: 'string',
+    channelId: 'string',
+    userId: 'string',
+    username: 'string',
+    points: 'unsigned',
+  }, {
+    primary: ['week', 'channelId', 'userId'],
+  })
+
+  ctx.model.extend('deadcells_mystery_shop', {
+    id: 'unsigned',
+    refreshKey: 'string',
+    items: 'text',
+    purchased: 'text',
+  }, {
+    primary: ['id'],
+  })
+
   registerCommands(ctx, config)
   registerExplorationDispatcher(ctx, config)
 
@@ -65,6 +89,9 @@ export function apply(ctx: Context, config: Config) {
       [config.commandAlchemy]: { description: '消耗细胞炼化护符，可追加1-5次批量生成候选' },
       [config.commandForge]: { description: '每次生成三个不重复装备，可追加1-5次批量生成候选' },
       [config.commandBoss || 'boss讨伐']: { description: '参加今日全服共享 Boss 讨伐' },
+      死斗: { description: '发起或加入群内死斗，先挑战 Boss 再进行玩家淘汰赛' },
+      神秘商店: { description: '查看并购买全服共享的神秘商店商品' },
+      本周排行: { description: '查看当前群本周积分排行榜' },
     },
   })
 }

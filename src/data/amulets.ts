@@ -71,6 +71,21 @@ export const amuletTraitList: AmuletTraitDefinition[] = [
   { id: 'super-crit-2', name: '超会心2', rarity: 'common', description: '暴击倍率提升至2.3倍', critDamageBonus: 0.3 },
   { id: 'super-crit-3', name: '超会心3', rarity: 'rare', description: '暴击倍率提升至2.5倍', critDamageBonus: 0.5 },
   { id: 'cold-forging', name: '寒气练成', rarity: 'rare', description: '每回合第一次造成伤害翻倍', effectId: 'cold-forging' },
+  { id: 'prism-mirror', name: '棱镜之镜', rarity: 'rare', description: '主武器攻击有30%概率追加一次独立攻击', effectId: 'prism-mirror' },
+  { id: 'shinobi-execution', name: '忍杀', rarity: 'rare', description: '主武器攻击生命低于20的对手时强制斩杀', effectId: 'shinobi-execution' },
+  { id: 'golden-order', name: '黄金律法', rarity: 'common', description: '每回合回复最大生命值15%', effectId: 'golden-order' },
+  { id: 'frenzied-flame', name: '癫火', rarity: 'rare', description: '暴击后25%概率同时眩晕敌我双方一回合', effectId: 'frenzied-flame' },
+  { id: 'counter-stance', name: '反击架势', rarity: 'common', description: '受到伤害后下一次主武器攻击必定暴击', effectId: 'counter-stance' },
+  { id: 'combo', name: '连击', rarity: 'common', description: '每次主武器攻击后攻击力+5', effectId: 'combo' },
+  { id: 'starfury', name: '星怒', rarity: 'rare', description: '主武器暴击时追加一次独立攻击，暴击独立判定', effectId: 'starfury' },
+  { id: 'offering', name: '祭品', rarity: 'rare', description: '开局失去99%最大生命，随后连续行动三回合', effectId: 'offering' },
+  { id: 'wind-shadow', name: '风灵月影', rarity: 'rare', description: '开局1%概率直接胜利，99%概率直接死亡', effectId: 'wind-shadow' },
+  { id: 'orichalcum', name: '奥利哈刚', rarity: 'common', description: '开局获得最大生命值20%的护盾', effectId: 'orichalcum' },
+  { id: 'giant-slayer', name: '巨人杀手', rarity: 'rare', description: 'Boss讨伐中暴击率提升至100%', effectId: 'giant-slayer' },
+  { id: 'bottled-lightning', name: '瓶装闪电', rarity: 'common', description: '自身第一回合必定使用1号位道具', effectId: 'bottled-lightning' },
+  { id: 'scales', name: '鳞甲', rarity: 'common', description: '单次受到超过50点伤害时，伤害降低50%', effectId: 'scales' },
+  { id: 'pen-nib', name: '笔尖', rarity: 'rare', description: '每3个自身回合，下一次主武器伤害翻倍', effectId: 'pen-nib' },
+  { id: 'demon-form', name: '恶魔形态', rarity: 'rare', description: '每个自身回合开始时攻击力+3', effectId: 'demon-form' },
 ]
 
 const amuletById = new Map(amuletList.map((item) => [item.id, item]))
@@ -94,12 +109,24 @@ export function parseAmuletTraits(value: string | null | undefined): string[] {
   }
 }
 
+export function activeTraitIds(player: Pick<import('../types').DeadcellsPlayer, 'amuletTraits' | 'weaponQuality' | 'weaponTrait'>): string[] {
+  const traits = parseAmuletTraits(player.amuletTraits)
+  const weaponTrait = player.weaponQuality === 'colorless' ? player.weaponTrait : null
+  return weaponTrait && !traits.includes(weaponTrait) ? [...traits, weaponTrait] : traits
+}
+
+export function randomAmuletTrait(random: () => number, excluded: string[] = []): string | undefined {
+  const pool = amuletTraitList.filter((trait) => !excluded.includes(trait.id))
+  return pool.length ? pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))].id : undefined
+}
+
 export function serializeAmuletTraits(traits: string[]): string {
   return JSON.stringify(traits)
 }
 
 export function rollAmulet(random: () => number): { id: string; traits: string[] } {
-  const traitCount = random() < 0.8 ? 1 : 2
+  const roll = random()
+  const traitCount = roll < 0.7 ? 1 : roll < 0.95 ? 2 : 3
   const selected: string[] = []
   while (selected.length < traitCount) {
     const rarity: AmuletRarity = random() < 0.7 ? 'common' : 'rare'

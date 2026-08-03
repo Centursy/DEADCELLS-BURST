@@ -3,11 +3,11 @@ import { join, resolve } from 'node:path'
 import { h, type Context } from 'koishi'
 import type { ExplorationResult } from '../core/exploration'
 import type { BossRaidResult } from '../core/boss'
-import { getEquipment, type EquipmentDefinition } from '../data/equipment'
+import { getEquipment, type EquipmentDefinition, type EquipmentReward, weaponQualityEffectText, weaponQualityText } from '../data/equipment'
 import { getAmulet, getAmuletTrait, parseAmuletTraits } from '../data/amulets'
 import { maps } from '../data/maps'
 import { formatWinRate, getPlayerStats } from '../core/progression'
-import type { BattleResult, DailyBossRecord, DeadcellsPlayer } from '../types'
+import type { BattleResult, DailyBossRecord, DeadcellsPlayer, DeathmatchResult, MysteryShopItem, WeeklyScore, WeaponQuality } from '../types'
 
 const assetDirectory = resolve(__dirname, '../../pic')
 const avatarCache = new Map<string, string | undefined>()
@@ -117,6 +117,12 @@ const equipmentImages: Record<string, string> = {
   'health-flask': '血瓶.webp',
 }
 
+const shopImages: Record<string, string> = {
+  'super-carrot': 'shop/超级萝卜.webp',
+  'original-chicken': 'shop/原味鸡.webp',
+  'power-scroll': 'shop/威力卷轴.webp',
+}
+
 function escapeHtml(value: unknown): string {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -171,6 +177,14 @@ function imageTag(id: string | null | undefined, className = 'equipment-image'):
     : `<div class="${className} empty-image">EMPTY</div>`
 }
 
+function weaponQualityClass(quality: WeaponQuality | null | undefined): string {
+  return quality === 'gold' ? 'weapon-gold' : quality === 'colorless' ? 'weapon-colorless' : 'weapon-normal'
+}
+
+function weaponImageTag(id: string | null | undefined, quality: WeaponQuality | null | undefined, className = 'equipment-image'): string {
+  return imageTag(id, `${className} ${weaponQualityClass(quality)}`)
+}
+
 function amuletImageTag(id: string | null | undefined, className = 'equipment-image'): string {
   const source = assetData(getAmulet(id)?.image)
   return source
@@ -193,14 +207,25 @@ function bossCellTag(level: number): string {
     : `<span>${level} CELL</span>`
 }
 
-function equipmentPanel(label: string, id: string | null, slot: string): string {
+function weaponDescriptionText(description: string, quality: WeaponQuality | null | undefined, traitId?: string | null): string {
+  const trait = traitId ? getAmuletTrait(traitId) : undefined
+  return [description, weaponQualityEffectText(quality), trait ? `无色词条：${trait.name}（${trait.description}）` : '']
+    .filter(Boolean)
+    .join('｜')
+}
+
+function equipmentPanel(label: string, id: string | null, slot: string, quality?: WeaponQuality, weaponTrait?: string | null): string {
   const equipment = getEquipment(id)
+  const isWeapon = label === 'WEAPON'
+  const description = isWeapon
+    ? weaponDescriptionText(equipment?.description || slot, quality, weaponTrait)
+    : equipment?.description || slot
   return `
-    <div class="equipment-slot">
-      <div class="slot-label">${escapeHtml(label)}</div>
-      ${imageTag(id)}
+    <div class="equipment-slot${isWeapon ? ` ${weaponQualityClass(quality)}` : ''}">
+      <div class="slot-label">${escapeHtml(label)}${isWeapon ? ` // ${weaponQualityText(quality).toUpperCase()}` : ''}</div>
+      ${isWeapon ? weaponImageTag(id, quality) : imageTag(id)}
       <div class="slot-name">${escapeHtml(equipment?.name || '无')}</div>
-      <div class="slot-effect">${escapeHtml(equipment?.description || slot)}</div>
+      <div class="slot-effect">${escapeHtml(description)}</div>
     </div>`
 }
 
@@ -299,6 +324,26 @@ function cardStyle(): string {
     .hero-mark { width: 96px; height: 96px; image-rendering: pixelated; object-fit: contain; }
     .avatar { width: 88px; height: 88px; flex: 0 0 88px; object-fit: cover; border: 2px solid #f3cf67; background: #18253b; }
     .avatar-fallback { display: grid; place-items: center; color: #f3cf67; font: 800 38px Consolas, monospace; }
+    .avatar-small,
+    .avatar-small.avatar-fallback {
+      display: inline-flex;
+      flex: 0 0 34px;
+      width: 34px;
+      height: 34px;
+      min-width: 34px;
+      min-height: 34px;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      box-sizing: border-box;
+      border: 1px solid #55708c;
+      border-radius: 50%;
+      background: #18253b;
+      object-fit: cover;
+      object-position: center;
+      vertical-align: middle;
+    }
+    .avatar-small.avatar-fallback { color: #f3cf67; font: 800 16px Consolas, monospace; }
     .hero-profile { display: flex; align-items: center; gap: 18px; }
     .section-title {
       display: flex;
@@ -341,6 +386,14 @@ function cardStyle(): string {
     }
     .slot-label { grid-column: 1 / -1; color: #65d8e2; font-family: Consolas, monospace; font-size: 13px; font-weight: 700; }
     .equipment-image { grid-row: 2 / 4; width: 64px; height: 64px; image-rendering: pixelated; object-fit: contain; }
+    .weapon-gold { border-color: #d9b45b !important; box-shadow: inset 0 0 0 1px #fff0a2; }
+    .weapon-colorless { border-top-color: #73d9e6 !important; border-right-color: #f0c76b !important; border-bottom-color: #e56d72 !important; border-left-color: #b99adf !important; box-shadow: inset 0 0 0 1px #f4f5ed; }
+    .equipment-slot.weapon-gold { border-width: 3px; box-shadow: inset 0 0 0 2px rgba(255, 240, 162, .48); }
+    .equipment-slot.weapon-colorless { border-width: 3px; box-shadow: inset 0 0 0 2px rgba(244, 245, 237, .58); }
+    .equipment-image.weapon-gold, .loot-image.weapon-gold { padding: 4px; border: 4px solid #d9b45b; background: #252117; box-shadow: inset 0 0 0 1px #fff0a2; }
+    .equipment-image.weapon-colorless, .loot-image.weapon-colorless { padding: 4px; border-width: 4px; background: #1d2030; box-shadow: inset 0 0 0 1px #f4f5ed; }
+    .mini-image.weapon-gold { padding: 2px; border: 3px solid #d9b45b; box-shadow: inset 0 0 0 1px #fff0a2; }
+    .mini-image.weapon-colorless { padding: 2px; border-width: 3px; box-shadow: inset 0 0 0 1px #f4f5ed; }
     .empty-image { display: grid; place-items: center; color: #69788b; border: 1px dashed #4b6079; font: 11px Consolas, monospace; }
     .slot-name { align-self: end; color: #fff5d0; font-size: 20px; font-weight: 800; }
     .slot-effect { align-self: start; color: #9aa8bd; font-size: 14px; }
@@ -408,6 +461,8 @@ function cardStyle(): string {
     .choice-card { min-height: 188px; padding: 14px; background: #151f34; border: 1px solid #55708c; }
     .choice-number { color: #d95549; font: 900 24px Consolas, monospace; }
     .choice-card .mini-image { display: block; width: 78px; height: 78px; margin: 8px auto; }
+    .shop-item-image { display: block; width: 72px; height: 72px; margin: 8px auto; image-rendering: pixelated; object-fit: contain; background: #0d1525; border: 1px solid #405772; }
+    .choice-card.sold { opacity: .58; filter: saturate(.55); }
     .choice-group { color: #65d8e2; font: 700 11px Consolas, monospace; text-align: center; }
     .choice-name { color: #fff5d0; font-size: 18px; font-weight: 800; text-align: center; }
     .choice-type { margin-top: 3px; color: #65d8e2; font: 12px Consolas, monospace; text-align: center; }
@@ -520,6 +575,8 @@ function cardStyle(): string {
     .boss-ranking-title { margin: 10px 18px 8px; color: #f3cf67; font: 700 15px Consolas, monospace; letter-spacing: 1px; }
     .boss-ranking { display: grid; gap: 5px; margin: 0 18px 16px; }
     .boss-ranking-row { display: grid; grid-template-columns: 34px 1fr auto; gap: 8px; padding: 7px 10px; color: #d7e0e9; background: #151f34; border: 1px solid #334761; }
+    .boss-ranking-row span { display: flex; min-width: 0; align-items: center; gap: 8px; overflow: hidden; }
+    .boss-ranking-row span .avatar-small { margin-right: 2px; }
     .boss-ranking-row strong { color: #f3cf67; }
     .boss-choice-card { margin: 18px; padding: 18px; background: #151f34; border: 1px solid #f3cf67; }
     .boss-choice-title { color: #f3cf67; font-size: 22px; font-weight: 900; }
@@ -529,6 +586,272 @@ function cardStyle(): string {
     .boss-choice-number { color: #65d8e2; font: 900 18px Consolas, monospace; }
     .boss-choice-name { color: #fff5d0; font-weight: 800; }
     .boss-choice-description { margin-top: 2px; color: #9aa8bd; font-size: 12px; }
+
+    /* Shared visual language: restrained parchment text and rust-red combat accents. */
+    :root {
+      --ink: #0c0d0f;
+      --surface: #151719;
+      --surface-raised: #1b1e21;
+      --line: #343a3c;
+      --line-soft: #272c2f;
+      --paper: #f1ead8;
+      --muted: #a7afb2;
+      --rust: #c4503c;
+      --rust-dark: #742e2b;
+      --gold: #d9b45b;
+      --cyan: #73c8c9;
+    }
+    html, body { background: var(--ink); }
+    body { color: var(--paper); font-size: 17px; line-height: 1.45; }
+    .card {
+      width: 840px;
+      padding: 24px;
+      background: var(--surface);
+      border: 1px solid #4a3937;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .045), 0 12px 28px rgba(0, 0, 0, .3);
+    }
+    .card::before { inset: 0; border: 0; border-top: 3px solid var(--rust); }
+    .card::after { width: 92px; height: 3px; background: var(--gold); box-shadow: none; }
+    .header { gap: 16px; padding: 4px 18px 16px; border-bottom: 1px solid #54413d; }
+    .brand { color: var(--paper); font-size: 32px; text-shadow: 2px 2px 0 #502b29; }
+    .brand span { color: var(--gold); }
+    .eyebrow, .slot-label, .choice-group, .route-index, .boss-raid-kicker { color: var(--cyan); }
+    .cell-badge { color: var(--paper); background: #1e2224; border-color: #454c4d; }
+    .section-title { color: var(--paper); margin-top: 12px; }
+    .section-title::after { background: #3a4142; }
+    .stat, .equipment-slot, .fighter, .choice-card, .amulet-choice-card, .boss-card, .boss-raid-stat, .boss-ranking-row, .clear-reward-item {
+      background: var(--surface-raised);
+      border-color: var(--line);
+    }
+    .stat-label, .player-subtitle, .slot-effect, .loot-owner-label, .choice-description, .boss-state, .boss-choice-description { color: var(--muted); }
+    .stat-value, .fighter-stat strong, .hp-value { color: var(--paper); }
+    .stat-value.accent, .trait-line { color: var(--cyan); }
+    .avatar { border-color: #b7914b; background: #202426; }
+    .equipment-slot { min-height: 112px; }
+    .amulet-slot { border-color: #806338; }
+    .battle-arena { gap: 12px; padding-top: 18px; padding-bottom: 18px; }
+    .fighter { padding: 15px; }
+    .fighter.winner { border-color: #b9954c; box-shadow: inset 0 -2px 0 var(--gold); }
+    .fighter-name, .player-name, .loot-owner-name, .boss-raid-name { color: var(--paper); }
+    .versus { color: var(--rust); font-size: 22px; }
+    .result, .loot-status {
+      color: #fff7e5;
+      background: var(--rust-dark);
+      border: 1px solid #d6765d;
+      box-shadow: none;
+    }
+    .result small, .loot-status small { color: #efd9be; }
+    .battle-log { padding: 12px; background: #101214; border-color: #303638; }
+    .log-title { color: var(--cyan); }
+    .log-line { padding: 7px 8px; color: #cbd1d0; border-color: #272d2f; }
+    .log-line.critical, .log-line.danger { color: #ef927f; }
+    .log-line.skill { color: #d9b45b; }
+    .log-line.defense { color: var(--cyan); }
+    .log-line.status, .log-line.victory { color: #eed58b; }
+    .log-line.item { color: #a9d8a0; }
+    .round-state { gap: 7px; padding: 9px; border-color: #353b3d; background: #181b1d; }
+    .hp-state { color: #d7dcda; }
+    .hp-track { height: 10px; border: 0; background: #303436; }
+    .hp-fill { background: #6fbfc0; }
+    .hp-fill.low { background: var(--rust); }
+    .loot-panel, .amulet-result, .boss-choice-card, .explore-summary, .boss-hp-panel {
+      background: var(--surface-raised);
+      border-color: #68513d;
+    }
+    .loot-name, .amulet-result-name, .choice-number, .clear-reward-value { color: var(--gold); }
+    .map-art, .route-node, .clear-fighter { border-color: var(--line); }
+    .route-node.current { border-color: #ba9148; box-shadow: inset 0 -2px 0 var(--gold); }
+    .explore-comment { background: #1b2022; border-left-color: var(--cyan); }
+    .completion-card { background: #111315; }
+    .completion-card.final-red { background: #211416; border-color: #87423a; }
+    .clear-stage { border-width: 1px; border-color: #936047; box-shadow: 0 10px 22px rgba(0, 0, 0, .3); }
+    .clear-title { color: var(--paper); text-shadow: 2px 2px 0 #522b29; }
+    .clear-message, .completion-badge { border-width: 1px; box-shadow: none; }
+    .boss-raid-hero { border-width: 1px; border-color: #895044; }
+    .boss-raid-background { opacity: .3; }
+    .boss-raid-hero::after { background: rgba(9, 10, 12, .62); }
+    .boss-raid-name { font-size: 40px; text-shadow: 2px 2px 0 #532925; }
+    .boss-raid-difficulty { color: #171514; background: var(--gold); }
+    .boss-raid-difficulty.veteran { background: #8ab9b6; }
+    .boss-raid-difficulty.veteran-king { background: var(--rust); }
+    .boss-hp-track { height: 14px; border: 0; background: #303233; }
+    .boss-hp-fill { background: var(--rust); }
+    .boss-hp-fill.cleared { background: var(--gold); }
+    .boss-raid-log { background: #121517; border-left-color: var(--rust); }
+    .boss-ranking-row strong, .boss-raid-stat-value { color: var(--gold); }
+
+    /* Wiki data-page layer. Kept last so every render shares the same visual language. */
+    :root {
+      --wiki-body: #302830;
+      --wiki-surface: #131b33;
+      --wiki-surface-alt: #090e21;
+      --wiki-border: #414f6a;
+      --wiki-blue: #3761af;
+      --wiki-blue-line: #527fd0;
+      --wiki-text: #e8e8e8;
+      --wiki-muted: #aeb5c0;
+      --wiki-gold: #ffe280;
+      --wiki-link: #ffbe32;
+      --wiki-danger: #ff576a;
+      --wiki-success: #13aa45;
+    }
+    html, body { background: var(--wiki-body); }
+    body {
+      color: var(--wiki-text);
+      font-family: Arial, "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      font-size: 17px;
+      line-height: 1.45;
+    }
+    .wiki-page.card {
+      width: 840px;
+      padding: 22px;
+      background: var(--wiki-surface);
+      border: 1px solid var(--wiki-border);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04), 0 10px 24px rgba(0, 0, 0, .28);
+    }
+    .wiki-page.card::before { inset: 0; border: 0; border-top: 3px solid var(--wiki-blue-line); }
+    .wiki-page.card::after { display: none; }
+    .wiki-page .header, .wiki-page .completion-header {
+      padding: 5px 16px 15px;
+      border-bottom: 1px solid var(--wiki-border);
+    }
+    .wiki-page .eyebrow, .wiki-page .slot-label, .wiki-page .choice-group,
+    .wiki-page .route-index, .wiki-page .boss-raid-kicker, .wiki-page .log-title,
+    .wiki-page .clear-kicker, .wiki-page .fighter-stat span, .wiki-page .loot-kind {
+      color: #8fb5ff;
+      font-family: Consolas, "Courier New", monospace;
+      letter-spacing: 1px;
+    }
+    .wiki-page .brand { color: var(--wiki-gold); font-size: 31px; text-shadow: none; }
+    .wiki-page .brand span { color: var(--wiki-text); }
+    .wiki-page .cell-badge {
+      color: var(--wiki-gold);
+      background: var(--wiki-surface-alt);
+      border-color: var(--wiki-blue-line);
+      border-radius: 2px;
+    }
+    .wiki-page .hero, .wiki-page .explore-hero, .wiki-page .loot-owner { padding-left: 16px; padding-right: 16px; }
+    .wiki-page .hero, .wiki-page .explore-hero { margin: 16px; padding: 0; }
+    .wiki-page .hero { min-height: 118px; padding: 16px; background: var(--wiki-surface-alt); border: 1px solid var(--wiki-border); }
+    .wiki-page .player-name, .wiki-page .fighter-name, .wiki-page .loot-owner-name,
+    .wiki-page .explore-player, .wiki-page .boss-raid-name { color: var(--wiki-text); }
+    .wiki-page .player-subtitle, .wiki-page .stat-label, .wiki-page .slot-effect,
+    .wiki-page .loot-owner-label, .wiki-page .choice-description, .wiki-page .boss-state,
+    .wiki-page .boss-choice-description, .wiki-page .route-reward { color: var(--wiki-muted); }
+    .wiki-page .avatar { border-color: var(--wiki-blue-line); background: var(--wiki-surface-alt); }
+    .wiki-page .section-title, .wiki-page .route-title, .wiki-page .boss-title,
+    .wiki-page .boss-ranking-title {
+      margin: 16px 16px 8px;
+      padding: 7px 10px;
+      color: var(--wiki-gold);
+      background: var(--wiki-surface-alt);
+      border: 1px solid var(--wiki-border);
+      font-family: Arial, "Microsoft YaHei", sans-serif;
+      font-size: 15px;
+      letter-spacing: 0;
+    }
+    .wiki-page .section-title::after { background: var(--wiki-border); }
+    .wiki-page .stats {
+      gap: 0;
+      margin: 0 16px 16px;
+      padding: 0;
+      border: 1px solid var(--wiki-border);
+      background: var(--wiki-surface-alt);
+    }
+    .wiki-page .stat {
+      min-height: 66px;
+      padding: 10px 12px;
+      background: transparent;
+      border: 0;
+      border-right: 1px solid var(--wiki-border);
+    }
+    .wiki-page .stat:last-child { border-right: 0; }
+    .wiki-page .stat-label { font-size: 12px; }
+    .wiki-page .stat-value { margin-top: 4px; color: var(--wiki-text); font-size: 22px; }
+    .wiki-page .stat-value.accent, .wiki-page .trait-line, .wiki-page .explore-gain { color: var(--wiki-link); }
+    .wiki-page .equipment-grid {
+      grid-template-columns: 1fr;
+      gap: 0;
+      margin: 0 16px 16px;
+      padding: 0;
+      border: 1px solid var(--wiki-border);
+      background: var(--wiki-surface-alt);
+    }
+    .wiki-page .equipment-slot {
+      grid-template-columns: 68px 150px 1fr;
+      grid-template-rows: 1fr;
+      min-height: 76px;
+      padding: 6px 10px;
+      background: transparent;
+      border: 0;
+      border-bottom: 1px solid var(--wiki-border);
+    }
+    .wiki-page .equipment-slot:last-child { border-bottom: 0; }
+    .wiki-page .equipment-slot .slot-label { grid-column: auto; align-self: center; font-size: 12px; }
+    .wiki-page .equipment-image { grid-row: auto; width: 58px; height: 58px; }
+    .wiki-page .slot-name { align-self: center; color: var(--wiki-gold); font-size: 18px; }
+    .wiki-page .slot-effect { align-self: center; font-size: 13px; }
+    .wiki-page .weapon-gold { border-color: var(--wiki-gold) !important; box-shadow: inset 0 0 0 1px #fff5b3; }
+    .wiki-page .weapon-colorless { border-color: #b98cff !important; box-shadow: inset 0 0 0 1px #73d9e6; }
+    .wiki-page .amulet-slot { background: rgba(55, 97, 175, .12); }
+    .wiki-page .footer { margin: 0 16px; border-top-color: var(--wiki-border); color: var(--wiki-muted); }
+    .wiki-page .battle-arena { gap: 10px; padding: 16px; }
+    .wiki-page .fighter, .wiki-page .choice-card, .wiki-page .amulet-choice-card,
+    .wiki-page .boss-card, .wiki-page .boss-raid-stat, .wiki-page .boss-ranking-row,
+    .wiki-page .clear-reward-item {
+      background: var(--wiki-surface-alt);
+      border-color: var(--wiki-border);
+    }
+    .wiki-page .fighter { padding: 13px; }
+    .wiki-page .fighter.winner { border-color: var(--wiki-gold); box-shadow: inset 3px 0 0 var(--wiki-gold); }
+    .wiki-page .fighter-stat { border-bottom-color: var(--wiki-border); color: var(--wiki-muted); }
+    .wiki-page .fighter-stat strong { color: var(--wiki-text); }
+    .wiki-page .versus { color: var(--wiki-link); }
+    .wiki-page .result, .wiki-page .loot-status, .wiki-page .clear-message {
+      color: var(--wiki-text);
+      background: #1c2948;
+      border: 1px solid var(--wiki-blue-line);
+      box-shadow: none;
+    }
+    .wiki-page .result small, .wiki-page .loot-status small, .wiki-page .clear-message small { color: var(--wiki-muted); }
+    .wiki-page .battle-log, .wiki-page .boss-raid-log {
+      background: var(--wiki-surface-alt);
+      border-color: var(--wiki-border);
+      border-left: 3px solid var(--wiki-blue-line);
+    }
+    .wiki-page .log-line { color: #d6dbe4; border-color: rgba(65, 79, 106, .7); }
+    .wiki-page .log-line.critical, .wiki-page .log-line.danger { color: #ff9ca8; }
+    .wiki-page .log-line.skill, .wiki-page .log-line.status, .wiki-page .log-line.victory { color: var(--wiki-gold); }
+    .wiki-page .log-line.defense { color: #8ecfff; }
+    .wiki-page .round-state { background: #10162a; border-color: var(--wiki-border); }
+    .wiki-page .hp-track { background: #2d3852; }
+    .wiki-page .hp-fill { background: var(--wiki-blue-line); }
+    .wiki-page .hp-fill.low { background: var(--wiki-danger); }
+    .wiki-page .loot-panel, .wiki-page .amulet-result, .wiki-page .boss-choice-card,
+    .wiki-page .explore-summary, .wiki-page .boss-hp-panel {
+      background: var(--wiki-surface-alt);
+      border-color: var(--wiki-border);
+    }
+    .wiki-page .loot-panel, .wiki-page .amulet-result, .wiki-page .boss-choice-card { border-left: 3px solid var(--wiki-blue-line); }
+    .wiki-page .loot-name, .wiki-page .amulet-result-name, .wiki-page .choice-number,
+    .wiki-page .clear-reward-value, .wiki-page .boss-raid-stat-value { color: var(--wiki-gold); }
+    .wiki-page .map-art, .wiki-page .route-node, .wiki-page .clear-fighter { border-color: var(--wiki-border); }
+    .wiki-page .map-art::after { background: rgba(9, 14, 33, .52); }
+    .wiki-page .route-node.current { border-color: var(--wiki-gold); box-shadow: inset 0 -2px 0 var(--wiki-gold); }
+    .wiki-page .explore-comment { background: #17233d; border-left-color: var(--wiki-blue-line); }
+    .wiki-page .completion-card { background: var(--wiki-surface); }
+    .wiki-page .completion-card.final-red { background: #211622; border-color: #945164; }
+    .wiki-page .clear-stage, .wiki-page .boss-raid-hero { border-color: var(--wiki-border); box-shadow: none; }
+    .wiki-page .clear-stage::after, .wiki-page .boss-raid-hero::after { background: rgba(9, 14, 33, .6); }
+    .wiki-page .clear-title { color: var(--wiki-gold); text-shadow: 2px 2px 0 #22172c; }
+    .wiki-page .completion-badge, .wiki-page .clear-seal { color: #18203a; background: var(--wiki-gold); border-color: #fff0a8; }
+    .wiki-page .boss-raid-difficulty { color: #10162a; background: var(--wiki-gold); }
+    .wiki-page .boss-raid-difficulty.veteran { background: #9ec9ff; }
+    .wiki-page .boss-raid-difficulty.veteran-king { color: #fff; background: var(--wiki-danger); }
+    .wiki-page .boss-hp-track { background: #253149; }
+    .wiki-page .boss-hp-fill { background: var(--wiki-danger); }
+    .wiki-page .boss-hp-fill.cleared { background: var(--wiki-success); }
+    .wiki-page .boss-ranking-row strong { color: var(--wiki-gold); }
   `
 }
 
@@ -579,7 +902,7 @@ export async function renderPlayerCard(ctx: Context, player: DeadcellsPlayer): P
     </div>
     <div class="section-title">EQUIPMENT LOADOUT</div>
     <div class="equipment-grid">
-      ${equipmentPanel('WEAPON', player.weaponId, '武器')}
+      ${equipmentPanel('WEAPON', player.weaponId, '武器', player.weaponQuality, player.weaponTrait)}
       ${equipmentPanel('OFFHAND', player.shieldId, '副手')}
       ${equipmentPanel('ITEM 1', player.item1Id, '道具 1')}
       ${equipmentPanel('ITEM 2', player.item2Id, '道具 2')}
@@ -708,10 +1031,10 @@ function fighterCard(player: DeadcellsPlayer, hp: number, maxHp: number, winner:
   return `
     <div class="fighter${winner ? ' winner' : ''}">
       <div class="fighter-profile">${avatarTag(avatar, player.username)}<div class="fighter-name">${escapeHtml(player.username)}${winner ? '<span class="crown" aria-label="胜者">♛</span>' : ''}</div></div>
-      <div class="fighter-equip">${imageTag(player.weaponId, 'mini-image')}${imageTag(player.shieldId, 'mini-image')}${imageTag(player.item1Id, 'mini-image')}${imageTag(player.item2Id, 'mini-image')}${amuletImageTag(player.amuletId, 'mini-image amulet-mini')}</div>
+      <div class="fighter-equip">${weaponImageTag(player.weaponId, player.weaponQuality, 'mini-image')}${imageTag(player.shieldId, 'mini-image')}${imageTag(player.item1Id, 'mini-image')}${imageTag(player.item2Id, 'mini-image')}${amuletImageTag(player.amuletId, 'mini-image amulet-mini')}</div>
       <div class="fighter-stat"><span>HP</span><strong>${Math.max(0, Math.round(hp))} / ${maxHp}</strong></div>
       <div class="fighter-stat"><span>ATTACK</span><strong>${stats.attack}</strong></div>
-      <div class="fighter-stat"><span>WEAPON</span><strong>${escapeHtml(weapon?.name || '无')}</strong></div>
+      <div class="fighter-stat"><span>WEAPON</span><strong>${escapeHtml(`${weaponQualityText(player.weaponQuality)}·${weapon?.name || '无'}`)}</strong></div>
       <div class="fighter-stat"><span>OFFHAND</span><strong>${escapeHtml(shield?.name || '无')}</strong></div>
       <div class="fighter-stat"><span>ITEMS</span><strong>${escapeHtml([item1?.name, item2?.name].filter(Boolean).join(' / ') || '无')}</strong></div>
       <div class="fighter-stat"><span>AMULET</span><strong>${escapeHtml(amulet?.name || '囚者颈环')}</strong></div>
@@ -782,7 +1105,7 @@ export async function renderBattleCard(
 export async function renderEquipmentDropCard(
   ctx: Context,
   winner: DeadcellsPlayer,
-  equipment: EquipmentDefinition,
+  equipment: EquipmentReward,
   autoEquipped: boolean,
   currentEquipment?: EquipmentDefinition,
   promptText?: string,
@@ -801,8 +1124,8 @@ export async function renderEquipmentDropCard(
       <div><div class="loot-owner-name">${escapeHtml(winner.username)}</div><div class="loot-owner-label">SURVIVOR REWARD // DROP CONFIRMED</div></div>
     </div>
     <div class="loot-panel">
-      ${imageTag(equipment.id, 'loot-image')}
-      <div><div class="loot-kind">${equipment.type === 'weapon' ? 'WEAPON DROP' : equipment.type === 'offhand' ? 'OFFHAND DROP' : 'ITEM DROP'}</div><div class="loot-name">${escapeHtml(equipment.name)}</div><div class="loot-description">${escapeHtml(equipment.description)}</div></div>
+      ${equipment.type === 'weapon' ? weaponImageTag(equipment.id, equipment.weaponQuality, 'loot-image') : imageTag(equipment.id, 'loot-image')}
+      <div><div class="loot-kind">${equipment.type === 'weapon' ? `${weaponQualityText(equipment.weaponQuality).toUpperCase()} WEAPON DROP` : equipment.type === 'offhand' ? 'OFFHAND DROP' : 'ITEM DROP'}</div><div class="loot-name">${escapeHtml(equipment.name)}</div><div class="loot-description">${escapeHtml(equipment.type === 'weapon' ? weaponDescriptionText(equipment.description, equipment.weaponQuality, equipment.weaponTrait) : equipment.description)}</div></div>
     </div>
     <div class="loot-status">${escapeHtml(status)}<small>${autoEquipped ? '装备已写入角色数据。' : '回复 y 确认替换，其他内容或超时则放弃。'}</small></div>
     <div class="footer"><span>REWARD CACHE</span><span>RANDOM DROP</span><span>DEAD CELLS BURST</span></div>
@@ -906,7 +1229,7 @@ export async function renderAmuletDropCard(
 export async function renderForgeCard(
   ctx: Context,
   player: DeadcellsPlayer,
-  choices: EquipmentDefinition[],
+  choices: EquipmentReward[],
   count = 1,
   cost = 1000,
 ): Promise<any | undefined> {
@@ -924,10 +1247,10 @@ export async function renderForgeCard(
       <div class="choice-card">
         <div class="choice-number">${String(index + 1).padStart(2, '0')}</div>
         ${count > 1 ? `<div class="choice-group">GROUP ${Math.floor(index / 3) + 1}</div>` : ''}
-        ${imageTag(choice.id, 'mini-image')}
+        ${choice.type === 'weapon' ? weaponImageTag(choice.id, choice.weaponQuality, 'mini-image') : imageTag(choice.id, 'mini-image')}
         <div class="choice-name">${escapeHtml(choice.name)}</div>
-        <div class="choice-type">${choice.type === 'weapon' ? 'WEAPON' : choice.type === 'offhand' ? 'OFFHAND' : 'ITEM'}</div>
-        <div class="choice-description">${escapeHtml(choice.description)}</div>
+        <div class="choice-type">${choice.type === 'weapon' ? `${weaponQualityText(choice.weaponQuality).toUpperCase()} WEAPON` : choice.type === 'offhand' ? 'OFFHAND' : 'ITEM'}</div>
+        <div class="choice-description">${escapeHtml(choice.type === 'weapon' ? weaponDescriptionText(choice.description, choice.weaponQuality, choice.weaponTrait) : choice.description)}</div>
       </div>`).join('')}</div>
     <div class="loot-status">回复 1-${choices.length} 选择装备<small>如果选择道具，之后还需回复 1 或 2 选择替换的道具槽；其他内容放弃。</small></div>
     <div class="footer"><span>FORGE ROOM</span><span>NO DUPLICATES</span><span>DEAD CELLS BURST</span></div>
@@ -998,9 +1321,79 @@ export async function renderBossTraitChoiceCard(
       <div class="cell-badge">+${rewardCells} CELLS</div>
     </div>
     <div class="loot-owner">${avatarTag(avatar, player.username)}<div><div class="loot-owner-name">${escapeHtml(player.username)}</div><div class="loot-owner-label">击破 ${escapeHtml(boss.bossName)} · 选择一个词条</div></div></div>
-    <div class="boss-choice-card"><div class="boss-choice-title">最后一击奖励</div><div class="boss-choice-subtitle">从以下五个不重复词条中选择一个；已有两个词条时还需选择替换槽位。</div><div class="boss-choice-list">${choices.map((id, index) => { const trait = getAmuletTrait(id); return `<div class="boss-choice-item"><div class="boss-choice-number">${index + 1}</div><div><div class="boss-choice-name">${escapeHtml(trait?.name || id)}</div><div class="boss-choice-description">${escapeHtml(trait?.description || '')}</div></div></div>` }).join('')}</div></div>
+    <div class="boss-choice-card"><div class="boss-choice-title">最后一击奖励</div><div class="boss-choice-subtitle">从以下五个不重复词条中选择一个；护符最多容纳三个词条，满位后选择替换槽位。</div><div class="boss-choice-list">${choices.map((id, index) => { const trait = getAmuletTrait(id); return `<div class="boss-choice-item"><div class="boss-choice-number">${index + 1}</div><div><div class="boss-choice-name">${escapeHtml(trait?.name || id)}</div><div class="boss-choice-description">${escapeHtml(trait?.description || '')}</div></div></div>` }).join('')}</div></div>
     <div class="loot-status">请回复 1-${choices.length} 选择词条<small>奖励选择将在 ${Math.max(1, Math.ceil(timeoutSeconds))} 秒内有效。</small></div>
     <div class="footer"><span>LAST HIT</span><span>RANDOM TRAIT POOL</span><span>DEAD CELLS BURST</span></div>
+  `)
+  return renderCard(ctx, html)
+}
+
+export async function renderDeathmatchTraitChoiceCard(
+  ctx: Context,
+  player: DeadcellsPlayer,
+  choices: string[],
+  timeoutSeconds = 30,
+): Promise<any | undefined> {
+  const avatar = await avatarData(player.userId)
+  const html = pageHtml(`
+    <div class="header battle-header">
+      <div><div class="eyebrow">DEADCELLS BURST // DEATHMATCH REWARD</div><div class="brand">TRAIT<span> SELECTION</span></div></div>
+      <div class="cell-badge">10 OPTIONS</div>
+    </div>
+    <div class="loot-owner">${avatarTag(avatar, player.username)}<div><div class="loot-owner-name">${escapeHtml(player.username)}</div><div class="loot-owner-label">死斗胜者奖励 · 选择一个护符词条</div></div></div>
+    <div class="boss-choice-card"><div class="boss-choice-title">死斗胜者奖励</div><div class="boss-choice-subtitle">从以下十个不重复词条中选择一个；当前护符和无色武器已有的词条不会重复出现。</div><div class="boss-choice-list">${choices.map((id, index) => { const trait = getAmuletTrait(id); return `<div class="boss-choice-item"><div class="boss-choice-number">${index + 1}</div><div><div class="boss-choice-name">${escapeHtml(trait?.name || id)}</div><div class="boss-choice-description">${escapeHtml(trait?.description || '')}</div></div></div>` }).join('')}</div></div>
+    <div class="loot-status">请回复 1-${choices.length} 选择词条<small>奖励选择将在 ${Math.max(1, Math.ceil(timeoutSeconds))} 秒内有效。</small></div>
+    <div class="footer"><span>DEATHMATCH WINNER</span><span>RANDOM TRAIT POOL</span><span>DEAD CELLS BURST</span></div>
+  `)
+  return renderCard(ctx, html)
+}
+
+export async function renderDeathmatchCard(ctx: Context, result: DeathmatchResult, totalReward = 0): Promise<any | undefined> {
+  const bossBackground = assetData(mapImages[result.bossMapName])
+  const bossImage = assetData(mapBosses[result.bossMapName]?.image)
+  const avatars = await Promise.all(result.participants.map((participant) => avatarData(participant.userId)))
+  const winnerId = result.winnerId
+  const html = pageHtml(`
+    <div class="header battle-header">
+      <div><div class="eyebrow">DEADCELLS BURST // ARENA EVENT</div><div class="brand">DEATH<span>MATCH</span></div></div>
+      <div class="cell-badge">${result.bossKilled ? `POOL ${totalReward}` : 'BOSS FAILED'}</div>
+    </div>
+    <div class="boss-raid-hero">
+      ${bossBackground ? `<img class="boss-raid-background" src="${bossBackground}" alt="" />` : ''}
+      <div class="boss-raid-content"><div class="boss-raid-meta"><div class="boss-raid-kicker">CO-OP BOSS // LAST HIT STARTS THE ARENA</div><div class="boss-raid-name">${escapeHtml(result.bossName)}</div><div class="boss-raid-map">${escapeHtml(result.bossMapName)} · ${result.bossKilled ? 'BOSS DEFEATED' : 'BOSS SURVIVED'}</div></div>${bossImage ? `<img class="boss-raid-image" src="${bossImage}" alt="" />` : ''}</div>
+    </div>
+    <div class="section-title">SURVIVORS // ${result.participants.length}</div>
+    <div class="boss-ranking">${result.participants.map((participant, index) => `<div class="boss-ranking-row${participant.userId === winnerId ? ' victory' : ''}"><strong>#${index + 1}</strong><span>${avatarTag(avatars[index], participant.username, 'avatar-small')} ${escapeHtml(participant.username)}${participant.userId === winnerId ? ' ♛' : ''}</span><strong>${participant.eliminated ? 'ELIMINATED' : `${participant.hp}/${participant.maxHp}`}</strong></div>`).join('')}</div>
+    <div class="result">${winnerId ? `${escapeHtml(result.winnerName || '胜者')} <span class="crown">♛</span> WINS<small>获得 ${totalReward} 个细胞</small>` : 'NO WINNER<small>下注细胞消失</small>'}</div>
+    <div class="battle-log"><div class="log-title">DEATHMATCH LOG // FULL RECORD</div>${result.events.map((event) => battleLogLine(event.text)).join('')}</div>
+    <div class="footer"><span>${escapeHtml(result.bossMapName)}</span><span>RANDOMIZED ARENA</span><span>DEAD CELLS BURST</span></div>
+  `, 'card boss-raid-card')
+  return renderCard(ctx, html)
+}
+
+export async function renderMysteryShopCard(ctx: Context, items: MysteryShopItem[], purchased: number[], price: number): Promise<any | undefined> {
+  const shopItemImage = (item: MysteryShopItem): string => {
+    if (item.kind === 'weapon') return weaponImageTag(item.equipmentId, item.weaponQuality, 'shop-item-image')
+    if (item.kind === 'amulet') return amuletImageTag(item.equipmentId, 'shop-item-image')
+    const source = assetData(shopImages[item.kind])
+    return source ? `<img class="shop-item-image" src="${source}" alt="" />` : '<div class="shop-item-image empty-image">NO IMAGE</div>'
+  }
+  const html = pageHtml(`
+    <div class="header battle-header"><div><div class="eyebrow">DEADCELLS BURST // GLOBAL MARKET</div><div class="brand">MYSTERY<span> SHOP</span></div></div><div class="cell-badge">${price} CELLS / ITEM</div></div>
+    <div class="choice-grid">${items.map((item) => { const traitNames = item.traits?.map((id) => getAmuletTrait(id)?.name || id).join('、'); const weaponTrait = item.weaponTrait ? getAmuletTrait(item.weaponTrait) : undefined; const traitText = weaponTrait ? `无色词条：${weaponTrait.name}${weaponTrait.description ? `（${weaponTrait.description}）` : ''}` : traitNames ? `词条：${traitNames}` : ''; return `<div class="choice-card${purchased.includes(item.slot) ? ' sold' : ''}"><div class="choice-number">${String(item.slot).padStart(2, '0')}</div>${shopItemImage(item)}<div class="choice-name">${escapeHtml(item.name)}</div><div class="choice-type">${purchased.includes(item.slot) ? 'SOLD OUT' : 'AVAILABLE'}</div><div class="choice-description">${escapeHtml(item.description)}${traitText ? `<br />${escapeHtml(traitText)}` : ''}</div></div>` }).join('')}</div>
+    <div class="loot-status">请直接回复 1-9 选择商品<small>购买前会再次确认，商店全服共享。</small></div>
+    <div class="footer"><span>GLOBAL MARKET</span><span>9 SLOTS</span><span>DEAD CELLS BURST</span></div>
+  `)
+  return renderCard(ctx, html)
+}
+
+export async function renderWeeklyCard(ctx: Context, scores: WeeklyScore[]): Promise<any | undefined> {
+  const avatars = await Promise.all(scores.map((score) => avatarData(score.userId)))
+  const html = pageHtml(`
+    <div class="header battle-header"><div><div class="eyebrow">DEADCELLS BURST // WEEKLY RANKING</div><div class="brand">WEEK<span>LY SCORE</span></div></div><div class="cell-badge">${scores.length} PLAYERS</div></div>
+    <div class="boss-ranking">${scores.map((score, index) => `<div class="boss-ranking-row"><strong>#${index + 1}</strong><span>${avatarTag(avatars[index], score.username, 'avatar-small')} ${escapeHtml(score.username)}</span><strong>${score.points} PTS</strong></div>`).join('')}</div>
+    <div class="loot-status">本群本周积分<small>每周一东八区 0:00 刷新。</small></div>
+    <div class="footer"><span>WEEKLY SCORE</span><span>GROUP RANKING</span><span>DEAD CELLS BURST</span></div>
   `)
   return renderCard(ctx, html)
 }

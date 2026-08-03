@@ -2,7 +2,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 
 const { createPlayer } = require('../lib/core/progression')
-const { calculateBossReward, randomTraitChoices, simulateBossRaid, parseBossChoiceState } = require('../lib/core/boss')
+const { calculateBossReward, createDailyBossRecord, randomTraitChoices, simulateBossRaid, parseBossChoiceState } = require('../lib/core/boss')
 
 const config = {
   maxBattleTurns: 20,
@@ -28,6 +28,11 @@ function boss(overrides = {}) {
   }
 }
 
+function queuedRandom(values, fallback = 0.99) {
+  let index = 0
+  return () => values[index++] ?? fallback
+}
+
 test('Boss 讨伐奖励按实际削减血量、难度、细胞等级和贪婪连乘', () => {
   const player = createPlayer('a', 'A')
   player.bossCellLevel = 2
@@ -49,6 +54,32 @@ test('Boss 讨伐不触发直死魔眼', () => {
   const result = simulateBossRaid(player, boss({ currentHp: 100 }), config, () => 0)
   assert.equal(result.damage > 0, true)
   assert.doesNotMatch(result.events.join('\n'), /即死/)
+})
+
+test('每日 Boss 不会与前一天重复，剩余 Boss 仍从可选池中抽取', () => {
+  const record = createDailyBossRecord('2026-07-29', () => 0.99, '灯塔')
+  assert.notEqual(record.mapName, '灯塔')
+})
+
+test('Boss 三档生命按原范围的 1.5 倍生成', () => {
+  assert.equal(createDailyBossRecord('2026-07-29', queuedRandom([0, 0, 0])).maxHp, 18000)
+  assert.equal(createDailyBossRecord('2026-07-29', queuedRandom([0, 0.34, 0])).maxHp, 69000)
+  assert.equal(createDailyBossRecord('2026-07-29', queuedRandom([0, 0.67, 0])).maxHp, 105000)
+})
+
+test('寒气练成在 Boss 讨伐中每回合都能触发一次', () => {
+  const player = createPlayer('a', 'A')
+  player.amuletTraits = JSON.stringify(['cold-forging'])
+  const result = simulateBossRaid(player, boss(), { ...config, maxBattleTurns: 2 }, () => 0.99)
+  assert.equal(result.damage, 60)
+  assert.equal(result.events.filter((event) => event.includes('寒气练成')).length, 2)
+})
+
+test('Boss 战道具每场只能使用一次', () => {
+  const player = createPlayer('a', 'A')
+  player.item1Id = 'powerful-grenade'
+  const result = simulateBossRaid(player, boss(), { ...config, maxBattleTurns: 3, itemUseRate: 100 }, () => 0.99)
+  assert.equal(result.damage, 53)
 })
 
 test('Boss 词条选项来自全池且互不重复', () => {

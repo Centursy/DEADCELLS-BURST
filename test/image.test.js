@@ -1,7 +1,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { renderPlayerCard, renderBattleCard, renderEquipmentDropCard, renderExploreCard, renderAmuletCard, renderForgeCard, renderBossRaidCard, renderBossTraitChoiceCard } = require('../lib/output/image')
+const { renderPlayerCard, renderBattleCard, renderEquipmentDropCard, renderExploreCard, renderAmuletCard, renderForgeCard, renderBossRaidCard, renderBossTraitChoiceCard, renderDeathmatchTraitChoiceCard } = require('../lib/output/image')
 const { createPlayer } = require('../lib/core/progression')
 const { simulateBattle } = require('../lib/core/battle')
 const { explore } = require('../lib/core/exploration')
@@ -200,4 +200,15 @@ test('每日 Boss 卡片包含背景、血条、Boss 立绘和排行榜', async 
   const choice = await renderBossTraitChoiceCard(mock.context, player, boss, ['storm-controller', 'thorns-1', 'elf-blessing-1', 'super-crit-1', 'cold-forging'], 5000)
   assert.equal(choice.type, 'img')
   assert.match(mock.getHtml(), /TRAIT<span> SELECTION/)
+})
+
+test('死斗胜者词条奖励卡片展示十个候选', async () => {
+  const player = createPlayer('user-a', 'A')
+  const mock = mockContext()
+  const choices = ['attack-1', 'insight-1', 'initiative-1', 'offhand-1', 'endurance', 'greed-1', 'amulet-vampirism', 'last-stand', 'thorns-1', 'elf-blessing-1']
+  const result = await renderDeathmatchTraitChoiceCard(mock.context, player, choices)
+  assert.equal(result.type, 'img')
+  assert.match(mock.getHtml(), /DEATHMATCH REWARD/)
+  assert.equal((mock.getHtml().match(/class="boss-choice-number"/g) || []).length, 10)
+  assert.match(mock.getHtml(), /请回复 1-10 选择词条/)
 })

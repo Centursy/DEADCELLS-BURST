@@ -15,6 +15,6 @@ export declare function getLevelConfig(level: number): {
     attack: number;
     crit: number;
 };
-export declare function getPlayerStats(player: DeadcellsPlayer): PlayerStats;
+export declare function getPlayerStats(player: DeadcellsPlayer, includePowerScroll?: boolean): PlayerStats;
 export declare function formatWinRate(player: DeadcellsPlayer): string;
 export declare function getAmuletCellMultiplier(player: DeadcellsPlayer): number;

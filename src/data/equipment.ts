@@ -1,4 +1,12 @@
+import { randomAmuletTrait } from './amulets'
+import type { WeaponQuality } from '../types'
+
 export type EquipmentType = 'weapon' | 'offhand' | 'item'
+
+export interface EquipmentReward extends EquipmentDefinition {
+  weaponQuality?: WeaponQuality
+  weaponTrait?: string | null
+}
 
 export interface EquipmentDefinition {
   id: string
@@ -97,6 +105,35 @@ export function randomEquipmentChoices(random: () => number, count = 3): Equipme
     result.push(pool.splice(index, 1)[0])
   }
   return result
+}
+
+export function randomWeaponQuality(random: () => number): WeaponQuality {
+  const roll = random()
+  return roll < 0.75 ? 'normal' : roll < 0.95 ? 'gold' : 'colorless'
+}
+
+export function weaponQualityText(quality: WeaponQuality | null | undefined): string {
+  return quality === 'gold' ? '金色' : quality === 'colorless' ? '无色' : '普通'
+}
+
+export function weaponQualityBonus(quality: WeaponQuality | null | undefined): { attack: number; crit: number } {
+  return quality === 'gold' ? { attack: 5, crit: 5 } : { attack: 0, crit: 0 }
+}
+
+export function weaponQualityEffectText(quality: WeaponQuality | null | undefined): string {
+  if (quality === 'gold') return '金色加成：攻击力+5，暴击率+5%'
+  if (quality === 'colorless') return '无色品质：附带一个护符词条'
+  return ''
+}
+
+export function createEquipmentReward(equipment: EquipmentDefinition, random: () => number, excludedTraits: string[] = []): EquipmentReward {
+  if (equipment.type !== 'weapon') return equipment
+  const weaponQuality = randomWeaponQuality(random)
+  return {
+    ...equipment,
+    weaponQuality,
+    weaponTrait: weaponQuality === 'colorless' ? randomAmuletTrait(random, excludedTraits) || null : null,
+  }
 }
 
 export function equipmentTypeText(type: EquipmentType): string {

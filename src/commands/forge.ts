@@ -1,28 +1,31 @@
 import type { Context } from 'koishi'
 import type { Config } from '../config'
-import { equipmentTypeText, getEquipment, randomEquipmentChoices } from '../data/equipment'
+import { createEquipmentReward, equipmentTypeText, getEquipment, randomEquipmentChoices, type EquipmentReward, weaponQualityText } from '../data/equipment'
+import { activeTraitIds } from '../data/amulets'
 import { getPlayer } from '../utils/player'
 import { renderForgeCard } from '../output/image'
+import { isActivityActive } from '../core/activity'
 
 function choiceIndex(value: string | undefined, length: number): number | undefined {
   const index = Number.parseInt(value?.trim() || '', 10) - 1
   return Number.isInteger(index) && index >= 0 && index < length ? index : undefined
 }
 
-function craftCount(value: unknown): number | undefined {
+function craftCount(value: unknown, maxCount: number): number | undefined {
   if (value === undefined || value === null || value === '') return 1
   const count = Number(value)
-  return Number.isInteger(count) && count >= 1 && count <= 5 ? count : undefined
+  return Number.isInteger(count) && count >= 1 && count <= maxCount ? count : undefined
 }
 
 export function registerForgeCommand(ctx: Context, config: Config, busy: Set<string>) {
   ctx.command(`${config.commandForge} [count:number]`)
     .action(async ({ session }, countInput) => {
       if (!session?.userId) return '当前消息缺少用户身份，无法锻造装备。'
-      const count = craftCount(countInput)
-      if (!count) return '装备锻造次数必须是 1-5 的整数。'
+      const count = craftCount(countInput, config.forgeMaxCount)
+      if (!count) return `装备锻造次数必须是 1-${config.forgeMaxCount} 的整数。`
       const player = await getPlayer(ctx, session.userId)
       if (!player) return '未找到用户数据哦，请先使用 deadcells 指令来创建角色！'
+      if (isActivityActive(player.userId)) return '你正在参加死斗，结束前不能进行装备锻造。'
       const totalCost = config.forgeCost * count
       if (player.cells < totalCost) return `当前细胞数不足，需要 ${totalCost} 个细胞才能锻造 ${count} 次。`
       if (busy.has(player.userId)) return '你当前正在进行其他操作，请稍后再试。'
@@ -30,10 +33,11 @@ export function registerForgeCommand(ctx: Context, config: Config, busy: Set<str
       busy.add(player.userId)
       try {
         await ctx.database.set('deadcells_players', { userId: player.userId }, { cells: player.cells - totalCost })
-        const choices = Array.from({ length: count }, () => randomEquipmentChoices(Math.random, 3)).flat()
+        const choices: EquipmentReward[] = Array.from({ length: count }, () => randomEquipmentChoices(Math.random, 3)
+          .map((item) => createEquipmentReward(item, Math.random, activeTraitIds(player)))).flat()
         const card = config.enableImages ? await renderForgeCard(ctx, player, choices, count, totalCost) : undefined
         if (card) await session.send(card)
-        else await session.send(`【装备锻造】已消耗 ${totalCost} 个细胞，生成 ${count} 组装备！\n${choices.map((item, index) => `第${Math.floor(index / 3) + 1}组-${index % 3 + 1}（总选项${index + 1}）【${item.name}】（${equipmentTypeText(item.type)}）${item.description}`).join('\n')}\n回复 1-${choices.length} 选择装备，其他内容放弃。`)
+        else await session.send(`【装备锻造】已消耗 ${totalCost} 个细胞，生成 ${count} 组装备！\n${choices.map((item, index) => `第${Math.floor(index / 3) + 1}组-${index % 3 + 1}（总选项${index + 1}）【${item.type === 'weapon' ? `${weaponQualityText(item.weaponQuality)}·` : ''}${item.name}】（${equipmentTypeText(item.type)}）${item.description}${item.weaponTrait ? `｜无色词条：${item.weaponTrait}` : ''}`).join('\n')}\n回复 1-${choices.length} 选择装备，其他内容放弃。`)
         const selectedIndex = choiceIndex(await session.prompt(config.equipmentConfirmTimeout * 1000), choices.length)
         if (selectedIndex === undefined) return '已放弃锻造装备，消耗的细胞不返还。'
         const selected = choices[selectedIndex]
@@ -51,7 +55,9 @@ export function registerForgeCommand(ctx: Context, config: Config, busy: Set<str
           if (!['1', '2'].includes(slot?.trim() || '')) return '未选择有效道具槽位，锻造装备放弃。'
           field = slot.trim() === '1' ? 'item1Id' : 'item2Id'
         }
-        await ctx.database.set('deadcells_players', { userId: player.userId }, { [field]: selected.id })
+        await ctx.database.set('deadcells_players', { userId: player.userId }, selected.type === 'weapon'
+          ? { weaponId: selected.id, weaponQuality: selected.weaponQuality || 'normal', weaponTrait: selected.weaponQuality === 'colorless' ? selected.weaponTrait || null : null }
+          : { [field]: selected.id })
         return `已锻造并装备【${selected.name}】！`
       } finally {
         busy.delete(player.userId)

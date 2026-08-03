@@ -7,6 +7,9 @@ import { registerDuelCommand } from './duel'
 import { registerAlchemyCommand } from './alchemy'
 import { registerForgeCommand } from './forge'
 import { registerBossCommand } from './boss'
+import { registerDeathmatchCommand } from './deathmatch'
+import { registerShopCommand } from './shop'
+import { registerWeeklyCommand } from './weekly'
 
 export function registerCommands(ctx: Context, config: Config) {
   const busy = new Set<string>()
@@ -17,4 +20,7 @@ export function registerCommands(ctx: Context, config: Config) {
   registerAlchemyCommand(ctx, config, busy)
   registerForgeCommand(ctx, config, busy)
   registerBossCommand(ctx, config, busy)
+  registerDeathmatchCommand(ctx, config)
+  registerShopCommand(ctx, config, busy)
+  registerWeeklyCommand(ctx, config)
 }

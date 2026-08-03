@@ -5,6 +5,8 @@ import type { DeadcellsPlayer } from '../types'
 export function normalizePlayer(player: DeadcellsPlayer): DeadcellsPlayer {
   return {
     ...player,
+    weaponQuality: player.weaponQuality === 'gold' || player.weaponQuality === 'colorless' ? player.weaponQuality : 'normal',
+    weaponTrait: player.weaponQuality === 'colorless' && player.weaponTrait ? player.weaponTrait : null,
     item1Id: player.item1Id || null,
     item2Id: player.item2Id || null,
     amuletId: player.amuletId || 'prisoner-necklace',
@@ -14,6 +16,9 @@ export function normalizePlayer(player: DeadcellsPlayer): DeadcellsPlayer {
     dailyExploreCount: player.dailyExploreCount || 0,
     lastBossRaidAt: player.lastBossRaidAt || 0,
     bossChoiceState: player.bossChoiceState || null,
+    shopMaxHpBonus: player.shopMaxHpBonus || 0,
+    shopCritBonus: player.shopCritBonus || 0,
+    powerScrollReady: Boolean(player.powerScrollReady),
   }
 }
 

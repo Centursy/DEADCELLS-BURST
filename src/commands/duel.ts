@@ -1,10 +1,12 @@
 import { h, type Context } from 'koishi'
 import type { Config } from '../config'
-import { getEquipment, randomEquipment, type EquipmentDefinition } from '../data/equipment'
-import { getAmulet, parseAmuletTraits, serializeAmuletTraits } from '../data/amulets'
+import { createEquipmentReward, getEquipment, randomEquipment, type EquipmentDefinition, type EquipmentReward, weaponQualityText } from '../data/equipment'
+import { activeTraitIds, getAmulet, parseAmuletTraits, serializeAmuletTraits } from '../data/amulets'
 import { simulateBattle } from '../core/battle'
 import { getPlayer, parseAtTarget, confirmFromUser, cooldownRemaining } from '../utils/player'
 import { renderAmuletDropCard, renderBattleCard, renderEquipmentDropCard } from '../output/image'
+import { isActivityActive } from '../core/activity'
+import { addWeeklyPoints } from '../core/weekly'
 
 function lockKeys(a: string, b: string): string[] {
   return [a, b].sort()
@@ -16,6 +18,7 @@ export function registerDuelCommand(ctx: Context, config: Config, busy: Set<stri
     .action(async ({ session }, targetInput) => {
       if (!session?.userId) return '当前消息缺少用户身份，无法发起对战。'
       const userId = session.userId
+      if (isActivityActive(userId)) return '你正在参加死斗，结束前不能进行普通对战。'
       const target = await parseAtTarget(session, targetInput || '')
       if (!target) return '请使用 @用户 指定对战目标。'
       if (target.userId === userId) return '不可以和自己对战。'
@@ -54,13 +57,23 @@ export function registerDuelCommand(ctx: Context, config: Config, busy: Set<stri
           winCount: second.winCount + (result.winnerId === second.userId ? 1 : 0),
           lastBattleAt: now,
         })
+        await ctx.database.set('deadcells_players', { userId: first.userId }, { powerScrollReady: false })
+        await ctx.database.set('deadcells_players', { userId: second.userId }, { powerScrollReady: false })
 
         const winner = result.winnerId === first.userId ? first : second
+        await addWeeklyPoints(ctx, session.channelId, winner.userId, winner.username, 30)
         const copied = result.droppedEquipment
-        const equipment = copied && copied.type !== 'amulet'
-          ? getEquipment(copied.id)
+        const equipment: EquipmentReward | undefined = copied && copied.type !== 'amulet'
+          ? (() => {
+              const item = getEquipment(copied.id)
+              return item ? {
+                ...item,
+                weaponQuality: copied.type === 'weapon' ? copied.weaponQuality || 'normal' : undefined,
+                weaponTrait: copied.type === 'weapon' ? copied.weaponTrait || null : undefined,
+              } : undefined
+            })()
           : !copied && Math.random() * 100 < config.equipmentDropRate
-            ? randomEquipment(Math.random)
+            ? createEquipmentReward(randomEquipment(Math.random), Math.random, activeTraitIds(winner))
             : undefined
         const copiedAmulet = copied?.type === 'amulet' ? copied : undefined
 
@@ -86,7 +99,9 @@ export function registerDuelCommand(ctx: Context, config: Config, busy: Set<stri
             ? !winner.item1Id || !winner.item2Id
             : !currentId
           if (field && canAutoEquip) {
-            await ctx.database.set('deadcells_players', { userId: winner.userId }, { [field]: equipment.id })
+            await ctx.database.set('deadcells_players', { userId: winner.userId }, equipment.type === 'weapon'
+              ? { weaponId: equipment.id, weaponQuality: equipment.weaponQuality || 'normal', weaponTrait: equipment.weaponQuality === 'colorless' ? equipment.weaponTrait || null : null }
+              : { [field]: equipment.id })
             autoEquipped = true
           }
         }
@@ -112,7 +127,7 @@ export function registerDuelCommand(ctx: Context, config: Config, busy: Set<stri
           if (equipmentCard) {
             await session.send(equipmentCard)
           } else {
-            await session.send(`【装备获取】恭喜 ${h.at(winner.userId)} 获得装备【${equipment.name}】！\n${equipment.description}\n${autoEquipped ? '已自动装备。' : prompt || '回复 y 替换当前装备，其他内容或超时放弃。'}`)
+            await session.send(`【装备获取】恭喜 ${h.at(winner.userId)} 获得装备【${equipment.type === 'weapon' ? `${weaponQualityText(equipment.weaponQuality)}·` : ''}${equipment.name}】！\n${equipment.description}${equipment.weaponTrait ? `\n无色词条：${equipment.weaponTrait}` : ''}\n${autoEquipped ? '已自动装备。' : prompt || '回复 y 替换当前装备，其他内容或超时放弃。'}`)
           }
           if (autoEquipped) return
 
@@ -143,8 +158,10 @@ export function registerDuelCommand(ctx: Context, config: Config, busy: Set<stri
             ? true
             : await confirmFromUser(ctx, session.channelId, winner.userId, config.equipmentConfirmTimeout * 1000)
           if (!accepted) return '已放弃替换，掉落装备消失。'
-          await ctx.database.set('deadcells_players', { userId: winner.userId }, { [field]: equipment.id })
-          return `装备已替换为【${equipment.name}】！`
+          await ctx.database.set('deadcells_players', { userId: winner.userId }, equipment.type === 'weapon'
+            ? { weaponId: equipment.id, weaponQuality: equipment.weaponQuality || 'normal', weaponTrait: equipment.weaponQuality === 'colorless' ? equipment.weaponTrait || null : null }
+            : { [field]: equipment.id })
+          return `装备已替换为【${equipment.type === 'weapon' ? `${weaponQualityText(equipment.weaponQuality)}·` : ''}${equipment.name}】！`
         }
 
         if (copiedAmulet) {

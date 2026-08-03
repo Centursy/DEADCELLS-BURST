@@ -5,6 +5,7 @@ import { explorationText } from '../output/text'
 import { renderExploreCard } from '../output/image'
 import { getPlayer } from '../utils/player'
 import type { DeadcellsPlayer } from '../types'
+import { addWeeklyPoints } from './weekly'
 
 const activeUsers = new Set<string>()
 
@@ -96,6 +97,7 @@ export async function processDueExplorations(ctx: Context, config: Config, now =
         dailyExploreCount: daily.count + 1,
       }
       await ctx.database.set('deadcells_players', { userId: player.userId }, updated)
+      await addWeeklyPoints(ctx, state.channelId, player.userId, player.username, result.reached.length * 10)
       await sendCompletion(ctx, player, state, result)
     } finally {
       activeUsers.delete(player.userId)
