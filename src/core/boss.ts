@@ -1,7 +1,7 @@
 import { getEquipment } from '../data/equipment'
 import { activeTraitIds, amuletTraitList, getAmuletTrait } from '../data/amulets'
 import type { Config } from '../config'
-import type { BossChoiceState, DailyBossRecord, DeadcellsPlayer, Random } from '../types'
+import type { BossChoiceState, BossMutation, DailyBossRecord, DeadcellsPlayer, Random } from '../types'
 import { getPlayerStats } from './progression'
 import { maps, type MapDefinition } from '../data/maps'
 import { beijingDate } from './exploration-dispatch'
@@ -33,6 +33,40 @@ const FINAL_BOSS_MAPS = new Set(['王座之间', '塔顶', '观星台'])
 const DIFFICULTIES: DailyBossRecord['difficulty'][] = ['normal', 'veteran', 'veteran-king']
 const BOSS_HP_SCALE = 1.5
 
+export const BOSS_MUTATIONS: BossMutation[] = ['berserk', 'frozen', 'bleeding', 'greed', 'mediocre']
+
+export function randomBossMutation(random: Random = Math.random): BossMutation {
+  return BOSS_MUTATIONS[Math.min(BOSS_MUTATIONS.length - 1, Math.floor(random() * BOSS_MUTATIONS.length))]
+}
+
+export function bossMutationName(mutation: BossMutation | undefined): string {
+  switch (mutation) {
+    case 'berserk': return '狂暴'
+    case 'frozen': return '冰冻'
+    case 'bleeding': return '出血'
+    case 'greed': return '贪婪'
+    case 'mediocre': return '平庸'
+    default: return '无变异'
+  }
+}
+
+export function bossMutationDescription(mutation: BossMutation | undefined): string {
+  switch (mutation) {
+    case 'berserk': return '每 2 回合攻击一次'
+    case 'frozen': return '攻击有 50% 概率使玩家冰冻 1 回合'
+    case 'bleeding': return '攻击使玩家进入流血状态'
+    case 'greed': return 'Boss 奖励细胞按削减生命值的 2 倍计算'
+    case 'mediocre': return '攻击力减半，但每回合攻击一次'
+    default: return ''
+  }
+}
+
+function normalizeBossMutation(mutation: unknown, random: Random): BossMutation {
+  return typeof mutation === 'string' && BOSS_MUTATIONS.includes(mutation as BossMutation)
+    ? mutation as BossMutation
+    : randomBossMutation(random)
+}
+
 function randomInt(random: Random, min: number, max: number): number {
   return min + Math.floor(random() * (max - min + 1))
 }
@@ -63,6 +97,7 @@ export function createDailyBossRecord(date: string, random: Random = Math.random
     currentHp: config.maxHp,
     attackMultiplier: config.attackMultiplier,
     rewardMultiplier: config.rewardMultiplier,
+    mutation: randomBossMutation(random),
     completed: false,
     killerId: null,
     killerName: null,
@@ -73,7 +108,14 @@ export function createDailyBossRecord(date: string, random: Random = Math.random
 export async function getOrCreateDailyBoss(ctx: any, random: Random = Math.random): Promise<DailyBossRecord> {
   const date = beijingDate()
   const [existing] = await ctx.database.get('deadcells_daily_bosses', { date })
-  if (existing) return existing
+  if (existing) {
+    const mutation = normalizeBossMutation(existing.mutation, random)
+    if (existing.mutation !== mutation) {
+      await ctx.database.set('deadcells_daily_bosses', { date }, { mutation })
+      return { ...existing, mutation }
+    }
+    return existing
+  }
   const [previous] = await ctx.database.get('deadcells_daily_bosses', { date: beijingDate(Date.now() - 24 * 60 * 60 * 1000) })
   const record = createDailyBossRecord(date, random, previous?.mapName)
   try {
@@ -101,9 +143,10 @@ function greedMultiplier(traits: string[]): number {
   }, 1)
 }
 
-export function calculateBossReward(player: DeadcellsPlayer, damage: number, rewardMultiplier: number): number {
+export function calculateBossReward(player: DeadcellsPlayer, damage: number, rewardMultiplier: number, mutation?: BossMutation): number {
   const levelMultiplier = [1, 2, 3, 4, 5, 5][Math.max(0, Math.min(5, player.bossCellLevel))]
-  return Math.round(damage * 10 * rewardMultiplier * levelMultiplier * greedMultiplier(activeTraitIds(player)))
+  const mutationMultiplier = mutation === 'greed' ? 2 : 1
+  return Math.round(damage * 10 * rewardMultiplier * levelMultiplier * greedMultiplier(activeTraitIds(player)) * mutationMultiplier)
 }
 
 export function parseBossRankings(value: string | null | undefined): Array<{ userId: string; username: string; damage: number; channelId?: string }> {
@@ -149,6 +192,12 @@ export function simulateBossRaid(player: DeadcellsPlayer, boss: DailyBossRecord,
   let retaliationReady = false
   let weaponAttack = stats.attack
   let penNibReady = false
+  let playerFrozen = false
+  let playerBleeding = 0
+  let playerBleedAttack = 0
+  const mutation = boss.mutation
+  const bossAttackInterval = mutation === 'mediocre' ? 1 : mutation === 'berserk' ? 2 : 3
+  const bossAttackPower = 30 * boss.attackMultiplier * (mutation === 'mediocre' ? 0.5 : 1)
   const events: string[] = []
 
   const deal = (raw: number, forcedCrit = false, weaponDamage = false, allowExtras = true) => {
@@ -200,14 +249,26 @@ export function simulateBossRaid(player: DeadcellsPlayer, boss: DailyBossRecord,
       weaponAttack += 3
       events.push('【恶魔形态】攻击力提高3点！')
     }
-    const useSkill = Boolean(weapon?.skill && random() * 100 < config.skillRate)
+    if (playerBleeding > 0) {
+      const bleedDamage = Math.max(0, Math.round(playerBleedAttack * 0.5))
+      const before = playerHp
+      playerHp = Math.max(1, playerHp - bleedDamage)
+      playerBleeding--
+      events.push(`玩家受到流血伤害 ${Math.round(before - playerHp)} 点！`)
+    }
+
+    const frozenThisTurn = playerFrozen
+    playerFrozen = false
+    const useSkill = Boolean(!frozenThisTurn && weapon?.skill && random() * 100 < config.skillRate)
     const availableItems = [
       !item1Used && player.item1Id ? { id: player.item1Id, slot: 1 as const } : undefined,
       !item2Used && player.item2Id ? { id: player.item2Id, slot: 2 as const } : undefined,
     ].filter(Boolean) as Array<{ id: string; slot: 1 | 2 }>
     const forceFirstItem = turns === 1 && traits.some((id) => getAmuletTrait(id)?.effectId === 'bottled-lightning') && !item1Used && player.item1Id
-    const useItem = Boolean(forceFirstItem || (availableItems.length && random() * 100 < config.itemUseRate))
-    if (useItem) {
+    const useItem = Boolean(!frozenThisTurn && (forceFirstItem || (availableItems.length && random() * 100 < config.itemUseRate)))
+    if (frozenThisTurn) {
+      events.push('玩家被冰冻，无法行动！')
+    } else if (useItem) {
       const picked = forceFirstItem
         ? availableItems.find((item) => item.slot === 1)!
         : availableItems[Math.min(availableItems.length - 1, Math.floor(random() * availableItems.length))]
@@ -244,8 +305,8 @@ export function simulateBossRaid(player: DeadcellsPlayer, boss: DailyBossRecord,
     }
     if (remaining <= 0) break
 
-    if (turns % 3 === 0) {
-      let bossDamage = 30 * boss.attackMultiplier * (random() < 0.5 ? 2 : 1)
+    if (turns % bossAttackInterval === 0) {
+      let bossDamage = bossAttackPower * (random() < 0.5 ? 2 : 1)
       if (shield?.blockRate && random() * 100 < shield.blockRate) bossDamage = 0
       bossDamage *= damageTakenMultiplier
       if (traits.some((id) => getAmuletTrait(id)?.effectId === 'scales') && bossDamage > 50) {
@@ -261,6 +322,23 @@ export function simulateBossRaid(player: DeadcellsPlayer, boss: DailyBossRecord,
       playerHp = Math.max(0, playerHp - bossDamage)
       events.push(`Boss 发动攻击，造成 ${Math.round(bossDamage)} 点伤害！`)
       if (bossDamage > 0 && traits.some((id) => getAmuletTrait(id)?.effectId === 'counter-stance')) retaliationReady = true
+      if (bossDamage > 0 && mutation === 'frozen') {
+        if (traits.some((id) => getAmuletTrait(id)?.effectId === 'endurance') && random() < 0.5) {
+          events.push('【耐力】免疫了 Boss 的冰冻！')
+        } else if (random() < 0.5) {
+          playerFrozen = true
+          events.push('Boss 使玩家冰冻一回合！')
+        }
+      }
+      if (bossDamage > 0 && mutation === 'bleeding') {
+        if (traits.some((id) => getAmuletTrait(id)?.effectId === 'endurance') && random() < 0.5) {
+          events.push('【耐力】免疫了 Boss 的流血！')
+        } else {
+          playerBleeding = 3
+          playerBleedAttack = bossAttackPower
+          events.push('玩家进入流血状态！')
+        }
+      }
     } else {
       events.push('Boss 正在蓄力……')
     }

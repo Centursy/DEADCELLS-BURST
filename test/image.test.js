@@ -183,6 +183,7 @@ test('每日 Boss 卡片包含背景、血条、Boss 立绘和排行榜', async 
   const boss = {
     date: '2026-07-25', mapName: '黑色大桥', bossName: '大桥守卫', difficulty: 'veteran',
     maxHp: 25000, currentHp: 18000, attackMultiplier: 1.5, rewardMultiplier: 2,
+    mutation: 'frozen',
     completed: false, killerId: null, killerName: null, rankings: '[]',
   }
   const mock = mockContext()
@@ -196,6 +197,8 @@ test('每日 Boss 卡片包含背景、血条、Boss 立绘和排行榜', async 
   assert.match(mock.getHtml(), /boss-raid-image/)
   assert.match(mock.getHtml(), /boss-hp-fill/)
   assert.match(mock.getHtml(), /DAMAGE RANKING/)
+  assert.match(mock.getHtml(), /mutation-frozen/)
+  assert.match(mock.getHtml(), /冰冻 · 攻击有 50% 概率使玩家冰冻 1 回合/)
 
   const choice = await renderBossTraitChoiceCard(mock.context, player, boss, ['storm-controller', 'thorns-1', 'elf-blessing-1', 'super-crit-1', 'cold-forging'], 5000)
   assert.equal(choice.type, 'img')

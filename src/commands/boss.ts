@@ -1,6 +1,8 @@
 import type { Context } from 'koishi'
 import type { Config } from '../config'
 import {
+  bossMutationDescription,
+  bossMutationName,
   calculateBossReward,
   getOrCreateDailyBoss,
   parseBossChoiceState,
@@ -43,7 +45,9 @@ function rankingForUser(rankings: ReturnType<typeof parseBossRankings>, userId: 
 
 function bossText(boss: DailyBossRecord): string {
   const hp = Math.max(0, Math.round(boss.currentHp))
-  return `今日 Boss：【${boss.bossName}】（${boss.mapName}，${DIFFICULTY_NAMES[boss.difficulty]}）\nBoss 生命：${hp} / ${boss.maxHp}`
+  const mutation = bossMutationName(boss.mutation)
+  const mutationText = mutation === '无变异' ? '' : `\n变异：【${mutation}】${bossMutationDescription(boss.mutation)}`
+  return `今日 Boss：【${boss.bossName}】（${boss.mapName}，${DIFFICULTY_NAMES[boss.difficulty]}）${mutationText}\nBoss 生命：${hp} / ${boss.maxHp}`
 }
 
 async function sendBossCard(ctx: Context, session: any, player: DeadcellsPlayer, boss: DailyBossRecord, result?: ReturnType<typeof simulateBossRaid>, rankings = parseBossRankings(boss.rankings), completed = boss.completed) {
@@ -167,7 +171,7 @@ export function registerBossCommand(ctx: Context, config: Config, busy: Set<stri
         }
         await ctx.database.set('deadcells_players', { userId: player.userId }, { lastBossRaidAt: Date.now() })
 
-        const reward = calculateBossReward(player, result.damage, boss.rewardMultiplier)
+        const reward = calculateBossReward(player, result.damage, boss.rewardMultiplier, boss.mutation)
         if (killed) {
           const state: BossChoiceState = {
             date: boss.date,

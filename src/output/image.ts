@@ -7,7 +7,8 @@ import { getEquipment, type EquipmentDefinition, type EquipmentReward, weaponQua
 import { getAmulet, getAmuletTrait, parseAmuletTraits } from '../data/amulets'
 import { maps } from '../data/maps'
 import { formatWinRate, getPlayerStats } from '../core/progression'
-import type { BattleResult, DailyBossRecord, DeadcellsPlayer, DeathmatchResult, MysteryShopItem, WeeklyScore, WeaponQuality } from '../types'
+import type { BattleResult, BossMutation, DailyBossRecord, DeadcellsPlayer, DeathmatchResult, MysteryShopItem, WeeklyScore, WeaponQuality } from '../types'
+import { bossMutationDescription, bossMutationName } from '../core/boss'
 
 const assetDirectory = resolve(__dirname, '../../pic')
 const avatarCache = new Map<string, string | undefined>()
@@ -852,6 +853,23 @@ function cardStyle(): string {
     .wiki-page .boss-hp-fill { background: var(--wiki-danger); }
     .wiki-page .boss-hp-fill.cleared { background: var(--wiki-success); }
     .wiki-page .boss-ranking-row strong { color: var(--wiki-gold); }
+    .boss-raid-mutation { display: inline-flex; align-items: center; gap: 7px; width: fit-content; margin-top: 9px; padding: 5px 9px; color: #151719; border: 1px solid rgba(255,255,255,.55); font: 800 13px "Microsoft YaHei", sans-serif; }
+    .boss-raid-mutation::before { width: 7px; height: 7px; content: ""; background: currentColor; border-radius: 50%; }
+    .boss-raid-hero.mutation-berserk { border-color: #b83e3e; }
+    .boss-raid-hero.mutation-berserk::after { background: rgba(105, 17, 27, .6); }
+    .boss-raid-hero.mutation-frozen { border-color: #4f91c9; }
+    .boss-raid-hero.mutation-frozen::after { background: rgba(20, 63, 108, .58); }
+    .boss-raid-hero.mutation-bleeding { border-color: #8b4a9b; }
+    .boss-raid-hero.mutation-bleeding::after { background: rgba(66, 22, 75, .6); }
+    .boss-raid-hero.mutation-greed { border-color: #c79b38; }
+    .boss-raid-hero.mutation-greed::after { background: rgba(97, 67, 14, .56); }
+    .boss-raid-hero.mutation-mediocre { border-color: #5eaa68; }
+    .boss-raid-hero.mutation-mediocre::after { background: rgba(24, 79, 38, .55); }
+    .boss-raid-mutation.mutation-berserk { background: #c94c57; }
+    .boss-raid-mutation.mutation-frozen { background: #8ecfff; }
+    .boss-raid-mutation.mutation-bleeding { background: #bf82d1; }
+    .boss-raid-mutation.mutation-greed { background: #e2bd58; }
+    .boss-raid-mutation.mutation-mediocre { background: #8bcf8b; }
   `
 }
 
@@ -1276,12 +1294,16 @@ export async function renderBossRaidCard(
   const hp = Math.max(0, Math.round(boss.currentHp))
   const hpPercent = boss.maxHp ? Math.max(0, Math.min(100, (hp / boss.maxHp) * 100)) : 0
   const difficulty = bossDifficultyName(boss.difficulty)
+  const mutation = boss.mutation as BossMutation | undefined
+  const mutationName = bossMutationName(mutation)
+  const mutationDescription = bossMutationDescription(mutation)
+  const mutationClass = mutation ? `mutation-${mutation}` : 'mutation-none'
   const html = pageHtml(`
     <div class="header battle-header">
       <div><div class="eyebrow">DEADCELLS BURST // DAILY RAID</div><div class="brand">BOSS<span> ASSAULT</span></div></div>
       <div class="cell-badge">${escapeHtml(difficulty)}</div>
     </div>
-    <div class="boss-raid-hero">
+    <div class="boss-raid-hero ${mutationClass}">
       ${background ? `<img class="boss-raid-background" src="${background}" alt="" />` : ''}
       <div class="boss-raid-content">
         <div class="boss-raid-meta">
@@ -1289,6 +1311,7 @@ export async function renderBossRaidCard(
           <div class="boss-raid-name">${escapeHtml(boss.bossName)}</div>
           <div class="boss-raid-map">${escapeHtml(boss.mapName)} · 全服共享生命池</div>
           <div class="boss-raid-difficulty ${boss.difficulty}">${escapeHtml(difficulty)} · 奖励 ×${boss.rewardMultiplier}</div>
+          ${mutation ? `<div class="boss-raid-mutation ${mutationClass}">${escapeHtml(mutationName)} · ${escapeHtml(mutationDescription)}</div>` : ''}
         </div>
         ${bossImage ? `<img class="boss-raid-image" src="${bossImage}" alt="" />` : '<div class="boss-raid-image empty-image">NO BOSS IMAGE</div>'}
       </div>

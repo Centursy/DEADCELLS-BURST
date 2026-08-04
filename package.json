@@ -1,6 +1,6 @@
 {
   "name": "koishi-plugin-deadcells-burst",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "死亡细胞大作战！32张地图和原版地图boss，以回合制战斗，向玩家和boss发起挑战！",
   "repository": {
     "type": "git",

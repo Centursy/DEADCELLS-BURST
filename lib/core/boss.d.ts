@@ -1,5 +1,5 @@
 import type { Config } from '../config';
-import type { BossChoiceState, DailyBossRecord, DeadcellsPlayer, Random } from '../types';
+import type { BossChoiceState, BossMutation, DailyBossRecord, DeadcellsPlayer, Random } from '../types';
 import { type MapDefinition } from '../data/maps';
 export interface BossRaidResult {
     damage: number;
@@ -10,10 +10,14 @@ export interface BossRaidResult {
 }
 export declare function parseBossChoiceState(value: string | null | undefined): BossChoiceState | undefined;
 export declare function serializeBossChoiceState(state: BossChoiceState): string;
+export declare const BOSS_MUTATIONS: BossMutation[];
+export declare function randomBossMutation(random?: Random): BossMutation;
+export declare function bossMutationName(mutation: BossMutation | undefined): string;
+export declare function bossMutationDescription(mutation: BossMutation | undefined): string;
 export declare function raidBossMaps(): MapDefinition[];
 export declare function createDailyBossRecord(date: string, random?: Random, previousMapName?: string): DailyBossRecord;
 export declare function getOrCreateDailyBoss(ctx: any, random?: Random): Promise<DailyBossRecord>;
-export declare function calculateBossReward(player: DeadcellsPlayer, damage: number, rewardMultiplier: number): number;
+export declare function calculateBossReward(player: DeadcellsPlayer, damage: number, rewardMultiplier: number, mutation?: BossMutation): number;
 export declare function parseBossRankings(value: string | null | undefined): Array<{
     userId: string;
     username: string;

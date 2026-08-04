@@ -50,6 +50,7 @@ export function apply(ctx: Context, config: Config) {
     currentHp: 'unsigned',
     attackMultiplier: 'float',
     rewardMultiplier: 'unsigned',
+    mutation: { type: 'string', nullable: true },
     completed: 'boolean',
     killerId: { type: 'string', nullable: true },
     killerName: { type: 'string', nullable: true },

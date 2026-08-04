@@ -36,11 +36,14 @@ export interface DailyBossRecord {
   currentHp: number
   attackMultiplier: number
   rewardMultiplier: number
+  mutation: BossMutation
   completed: boolean
   killerId: string | null
   killerName: string | null
   rankings: string
 }
+
+export type BossMutation = 'berserk' | 'frozen' | 'bleeding' | 'greed' | 'mediocre'
 
 export interface BossRankingEntry {
   userId: string

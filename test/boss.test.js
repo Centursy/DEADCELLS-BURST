@@ -2,7 +2,8 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 
 const { createPlayer } = require('../lib/core/progression')
-const { calculateBossReward, createDailyBossRecord, randomTraitChoices, simulateBossRaid, parseBossChoiceState } = require('../lib/core/boss')
+const { bossMutationName, calculateBossReward, createDailyBossRecord, getOrCreateDailyBoss, randomTraitChoices, simulateBossRaid, parseBossChoiceState } = require('../lib/core/boss')
+const { beijingDate } = require('../lib/core/exploration-dispatch')
 
 const config = {
   maxBattleTurns: 20,
@@ -38,6 +39,57 @@ test('Boss 讨伐奖励按实际削减血量、难度、细胞等级和贪婪连
   player.bossCellLevel = 2
   player.amuletTraits = JSON.stringify(['greed-1', 'greed-2'])
   assert.equal(calculateBossReward(player, 100, 3), 54000)
+})
+
+test('每日 Boss 会生成五种变异之一，贪婪会使奖励翻倍', () => {
+  const record = createDailyBossRecord('2026-07-29', queuedRandom([0, 0, 0, 0]))
+  assert.equal(record.mutation, 'berserk')
+  assert.equal(bossMutationName(record.mutation), '狂暴')
+  const player = createPlayer('a', 'A')
+  assert.equal(calculateBossReward(player, 100, 1, 'greed'), 2000)
+})
+
+test('旧的每日 Boss 记录缺少变异时会补写且不修改主键', async () => {
+  const date = beijingDate()
+  const legacy = { date, mapName: '黑色大桥', bossName: '大桥守卫', difficulty: 'normal', maxHp: 18000, currentHp: 18000, attackMultiplier: 1, rewardMultiplier: 1, completed: false, killerId: null, killerName: null, rankings: '[]' }
+  const patches = []
+  const ctx = { database: {
+    get: async () => [legacy],
+    set: async (...args) => patches.push(args),
+  } }
+  const result = await getOrCreateDailyBoss(ctx, () => 0)
+  assert.equal(result.mutation, 'berserk')
+  assert.deepEqual(patches[0], ['deadcells_daily_bosses', { date }, { mutation: 'berserk' }])
+})
+
+test('狂暴每两回合攻击，平庸每回合攻击且伤害减半', () => {
+  const player = createPlayer('a', 'A')
+  const berserk = simulateBossRaid(player, boss({ mutation: 'berserk' }), { ...config, maxBattleTurns: 4 }, () => 0.99)
+  const mediocre = simulateBossRaid(player, boss({ mutation: 'mediocre' }), { ...config, maxBattleTurns: 1 }, () => 0.99)
+  assert.equal(berserk.events.filter((event) => event.startsWith('Boss 发动攻击')).length, 2)
+  assert.equal(mediocre.events.filter((event) => event.startsWith('Boss 发动攻击')).length, 1)
+  assert.equal(mediocre.playerHp, 35)
+})
+
+test('冰冻变异可以冻结玩家，耐力可以免疫', () => {
+  const player = createPlayer('a', 'A')
+  player.bossCellLevel = 5
+  const frozen = simulateBossRaid(player, boss({ mutation: 'frozen' }), { ...config, maxBattleTurns: 4 }, () => 0)
+  assert.match(frozen.events.join('\n'), /Boss 使玩家冰冻一回合/)
+  assert.match(frozen.events.join('\n'), /玩家被冰冻，无法行动/)
+
+  const immunePlayer = createPlayer('b', 'B')
+  immunePlayer.amuletTraits = JSON.stringify(['endurance'])
+  const immune = simulateBossRaid(immunePlayer, boss({ mutation: 'frozen' }), { ...config, maxBattleTurns: 3 }, () => 0)
+  assert.match(immune.events.join('\n'), /耐力.*免疫了 Boss 的冰冻/)
+})
+
+test('出血变异沿用三回合流血且不会致死', () => {
+  const player = createPlayer('a', 'A')
+  const result = simulateBossRaid(player, boss({ mutation: 'bleeding', attackMultiplier: 0.1 }), { ...config, maxBattleTurns: 6 }, () => 0.99)
+  assert.ok(result.playerHp >= 1)
+  assert.equal(result.events.filter((event) => event === '玩家进入流血状态！').length, 2)
+  assert.equal(result.events.filter((event) => event.startsWith('玩家受到流血伤害')).length, 3)
 })
 
 test('Boss 最后一击伤害不会按超额伤害结算', () => {
